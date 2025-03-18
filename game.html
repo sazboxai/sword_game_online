@@ -1,0 +1,2991 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Multiplayer Sword Fighting Game</title>
+    <!-- Socket.io client library -->
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0; 
+            overflow: hidden; 
+            background-color: #000;
+            font-family: Arial, sans-serif;
+        }
+        #crosshair {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 20px;
+            height: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 20px;
+            line-height: 1;
+            text-align: center;
+            pointer-events: none;
+            z-index: 1000;
+            text-shadow: 0 0 2px black;
+        }
+        canvas { 
+            display: block; 
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 24px;
+            z-index: 100;
+        }
+        #ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+        #health-bar {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 200px;
+            height: 20px;
+            background-color: #333;
+            border: 2px solid #666;
+        }
+        #health {
+            width: 100%;
+            height: 100%;
+            background-color: #f00;
+        }
+        #game-state {
+            position: absolute;
+            top: 50px;
+            left: 20px;
+            color: white;
+        }
+        #start-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+            pointer-events: auto;
+        }
+        #character-selection {
+            display: flex;
+            justify-content: space-around;
+            width: 80%;
+            max-width: 800px;
+            margin: 20px 0;
+        }
+        .character-option {
+            background-color: rgba(50, 50, 50, 0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            cursor: pointer;
+            width: 150px;
+            border: 2px solid transparent;
+            transition: all 0.3s;
+        }
+        .character-option:hover {
+            background-color: rgba(70, 70, 70, 0.8);
+            border-color: #fff;
+        }
+        .character-option.selected {
+            border-color: #f00;
+            background-color: rgba(100, 50, 50, 0.8);
+        }
+        .character-img {
+            width: 120px;
+            height: 120px;
+            margin-bottom: 10px;
+            background-color: #222;
+            border-radius: 5px;
+        }
+        h1 {
+            color: white;
+            font-size: 36px;
+            margin-bottom: 20px;
+        }
+        button {
+            background-color: #f00;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 20px;
+            pointer-events: auto;
+        }
+        button:hover {
+            background-color: #c00;
+        }
+        
+        .input-container {
+            margin: 20px auto;
+            max-width: 400px;
+        }
+        
+        .input-container label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #fff;
+        }
+        
+        .input-container input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #444;
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        
+        #multiplayer-status {
+            margin: 10px auto;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 4px;
+            max-width: 400px;
+            color: #aaa;
+        }
+        
+        #connection-status {
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+        
+        #players-online {
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">Loading...</div>
+    
+    <div id="start-screen">
+        <h1>3D Multiplayer Sword Fighting Game</h1>
+        <div class="input-container">
+            <label for="player-name">Your Name:</label>
+            <input type="text" id="player-name" placeholder="Enter your name" required>
+        </div>
+        
+        <div id="character-selection">
+            <div class="character-option" data-character="ninja">
+                <div class="character-img">
+                    <!-- Placeholder for ninja image -->
+                </div>
+                <h3>Ninja</h3>
+                <p>Fast & Agile</p>
+            </div>
+            <div class="character-option" data-character="knight">
+                <div class="character-img">
+                    <!-- Placeholder for knight image -->
+                </div>
+                <h3>Knight</h3>
+                <p>Strong & Durable</p>
+            </div>
+            <div class="character-option" data-character="samurai">
+                <div class="character-img">
+                    <!-- Placeholder for samurai image -->
+                </div>
+                <h3>Samurai</h3>
+                <p>Balanced</p>
+            </div>
+        </div>
+        
+        <div id="multiplayer-status">
+            <div id="connection-status">Server Status: Waiting to connect...</div>
+            <div id="players-online">Players Online: 0</div>
+        </div>
+        <button id="start-button" disabled>Select a Character</button>
+    </div>
+    
+    <div id="ui">
+        <div id="health-bar">
+            <div id="health"></div>
+        </div>
+        <div id="game-state">HP: 100</div>
+        <div id="crosshair">+</div>
+        <div id="players-list"></div>
+    </div>
+
+    <!-- Load Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="multiplayer.js"></script>
+    <script>
+    // Initialize the game once everything is loaded
+    window.addEventListener('load', function() {
+        // Hide loading screen
+        document.getElementById('loading').style.display = 'none';
+        
+        // Game initialization code
+        const game = new Game();
+        game.init();
+    });
+
+    // PowerUp class to represent collectible items with special effects
+    class PowerUp {
+        constructor(type, game, position) {
+            this.type = type;
+            this.game = game;
+            this.mesh = new THREE.Group();
+            this.position = position || { 
+                x: Math.random() * 80 - 40, 
+                y: 1, 
+                z: Math.random() * 80 - 40 
+            };
+            this.duration = 10; // power-up effect duration in seconds
+            this.active = true;
+            this.collisionRadius = 1.5;
+            
+            // Set power-up properties based on type
+            switch(type) {
+                case 'health':
+                    this.color = 0xff0000; // Red
+                    this.healAmount = 30;
+                    break;
+                case 'speed':
+                    this.color = 0x00ff00; // Green
+                    this.speedBoost = 3;
+                    break;
+                case 'power':
+                    this.color = 0x0000ff; // Blue
+                    this.powerBoost = 15;
+                    break;
+            }
+            
+            this.createMesh();
+        }
+        
+        createMesh() {
+            // Base shape based on type
+            let geometry;
+            
+            switch(this.type) {
+                case 'health':
+                    // Heart-like shape (two spheres and a cone)
+                    const sphere1 = new THREE.Mesh(
+                        new THREE.SphereGeometry(0.4, 16, 16),
+                        new THREE.MeshStandardMaterial({ 
+                            color: this.color,
+                            emissive: this.color,
+                            emissiveIntensity: 0.5,
+                            metalness: 0.8,
+                            roughness: 0.2
+                        })
+                    );
+                    sphere1.position.set(-0.25, 0, 0);
+                    
+                    const sphere2 = new THREE.Mesh(
+                        new THREE.SphereGeometry(0.4, 16, 16),
+                        new THREE.MeshStandardMaterial({ 
+                            color: this.color,
+                            emissive: this.color,
+                            emissiveIntensity: 0.5,
+                            metalness: 0.8,
+                            roughness: 0.2
+                        })
+                    );
+                    sphere2.position.set(0.25, 0, 0);
+                    
+                    const cone = new THREE.Mesh(
+                        new THREE.ConeGeometry(0.6, 0.8, 16),
+                        new THREE.MeshStandardMaterial({ 
+                            color: this.color,
+                            emissive: this.color,
+                            emissiveIntensity: 0.5,
+                            metalness: 0.8,
+                            roughness: 0.2
+                        })
+                    );
+                    cone.rotation.z = Math.PI;
+                    cone.position.set(0, -0.5, 0);
+                    
+                    this.mesh.add(sphere1, sphere2, cone);
+                    break;
+                    
+                case 'speed':
+                    // Lightning bolt shape
+                    geometry = new THREE.TorusGeometry(0.5, 0.2, 16, 20);
+                    const material = new THREE.MeshStandardMaterial({ 
+                        color: this.color,
+                        emissive: this.color,
+                        emissiveIntensity: 0.5,
+                        metalness: 0.6,
+                        roughness: 0.3
+                    });
+                    const torus = new THREE.Mesh(geometry, material);
+                    
+                    const bolt = new THREE.Mesh(
+                        new THREE.ConeGeometry(0.2, 1, 4),
+                        material
+                    );
+                    bolt.rotation.z = Math.PI / 4;
+                    bolt.position.set(0, 0, 0);
+                    
+                    this.mesh.add(torus, bolt);
+                    break;
+                    
+                case 'power':
+                    // Star-like shape
+                    geometry = new THREE.OctahedronGeometry(0.7, 0);
+                    const starMaterial = new THREE.MeshStandardMaterial({ 
+                        color: this.color,
+                        emissive: this.color,
+                        emissiveIntensity: 0.5,
+                        metalness: 0.9,
+                        roughness: 0.1
+                    });
+                    const star = new THREE.Mesh(geometry, starMaterial);
+                    this.mesh.add(star);
+                    break;
+            }
+            
+            // Position power-up in the world
+            this.mesh.position.set(this.position.x, this.position.y, this.position.z);
+            this.mesh.castShadow = true;
+            this.game.scene.add(this.mesh);
+            
+            // Add to game's power-ups array
+            this.game.powerUps.push(this);
+        }
+        
+        animate(time) {
+            if (this.active) {
+                // Floating animation
+                this.mesh.position.y = this.position.y + Math.sin(time * 0.002) * 0.2;
+                
+                // Rotation animation
+                this.mesh.rotation.y += 0.01;
+            }
+        }
+        
+        collect(character) {
+            if (!this.active) return;
+            
+            // Apply power-up effect
+            switch(this.type) {
+                case 'health':
+                    character.health = Math.min(character.health + this.healAmount, 
+                                              character.type === 'knight' ? 120 : 
+                                              character.type === 'samurai' ? 100 : 80);
+                    console.log(`Health restored! Current health: ${character.health}`);
+                    
+                    // Update health bar
+                    document.getElementById('health').style.width = `${character.health/120*100}%`;
+                    document.getElementById('game-state').textContent = `HP: ${character.health}`;
+                    break;
+                    
+                case 'speed':
+                    // Store the original speed
+                    character.originalSpeed = character.originalSpeed || character.speed;
+                    character.speed += this.speedBoost;
+                    
+                    // Restore original speed after duration
+                    setTimeout(() => {
+                        character.speed = character.originalSpeed;
+                        console.log('Speed boost expired!');
+                    }, this.duration * 1000);
+                    
+                    console.log(`Speed boosted! Current speed: ${character.speed}`);
+                    break;
+                    
+                case 'power':
+                    // Store the original attack power
+                    character.originalAttackPower = character.originalAttackPower || character.attackPower;
+                    character.attackPower += this.powerBoost;
+                    
+                    // Restore original attack power after duration
+                    setTimeout(() => {
+                        character.attackPower = character.originalAttackPower;
+                        console.log('Power boost expired!');
+                    }, this.duration * 1000);
+                    
+                    console.log(`Attack power boosted! Current power: ${character.attackPower}`);
+                    break;
+            }
+            
+            // Deactivate and remove from scene
+            this.active = false;
+            this.game.scene.remove(this.mesh);
+            
+            // Remove from game's power-ups array
+            const index = this.game.powerUps.indexOf(this);
+            if (index !== -1) {
+                this.game.powerUps.splice(index, 1);
+            }
+        }
+    }
+    
+    // Character class to represent players
+    class Character {
+        constructor(type, game) {
+            this.type = type;
+            this.game = game;
+            this.mesh = null;
+            this.sword = null;
+            
+            // Position and Movement
+            this.position = { x: 0, y: 0, z: 0 };
+            this.rotation = 0;
+            this.velocity = { x: 0, y: 0, z: 0 };
+            
+            // First-person physics constants
+            this.moveSpeed = 5;
+            this.sprintSpeed = 11; // Significantly increased sprint speed
+            this.friction = 0.85;
+            this.acceleration = 1.0;
+            
+            // Vertical movement
+            this.verticalVelocity = 0;
+            this.jumpForce = 0.2;
+            this.gravity = 0.01;
+            this.groundLevel = 0;
+            
+            // Removed jump mechanics as requested
+            
+            // Sprint mechanics
+            this.isSprinting = false;
+            this.sprintMultiplier = 2.2; // Increased sprint multiplier for faster movement
+            this.staminaMax = 100;
+            this.stamina = this.staminaMax;
+            this.maxStamina = this.staminaMax; // Fix: add maxStamina property
+            this.staminaRegenRate = 15;
+            this.staminaSprintCost = 30; // Increased stamina cost
+            this.attackStaminaCost = 12; // Define attack stamina cost (20% more than original 10)
+            this.staminaCostForLastAttack = 0; // Track last attack's stamina cost
+            this.staminaDepleted = false; // Flag to prevent sprinting when stamina is fully depleted until recovery
+            this.health = 100;
+            this.attackPower = 0;
+            this.attackCooldown = 0;
+            this.isAttacking = false;
+            this.isBlocking = false;
+            this.lastAttackTime = 0;
+            this.availableSwords = []; // List of available sword types
+            this.currentSwordIndex = 0;
+            
+            // Set stats based on character type
+            switch(type) {
+                case 'knight':
+                    this.maxSpeed = 5;
+                    this.health = 120;
+                    this.attackPower = 30;
+                    this.attackCooldown = 1.2;
+                    this.availableSwords = ['broadsword', 'greatsword'];
+                    break;
+                case 'samurai':
+                    this.maxSpeed = 6;
+                    this.health = 100;
+                    this.attackPower = 25;
+                    this.attackCooldown = 0.8;
+                    this.availableSwords = ['katana', 'dual_daggers'];
+                    break;
+                case 'ninja':
+                    this.maxSpeed = 8;
+                    this.health = 80;
+                    this.attackPower = 20;
+                    this.attackCooldown = 0.5;
+                    this.availableSwords = ['ninjato', 'rapier'];
+                    break;
+            }
+            
+            this.createMesh();
+        }
+        
+        createMesh() {
+            // Create a group to hold all parts of the character
+            this.mesh = new THREE.Group();
+            
+            if (this.type === 'knight') {
+                // Create knight character with armor
+                
+                // Body - torso
+                const bodyGeometry = new THREE.BoxGeometry(0.8, 1.2, 0.4);
+                const bodyMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x808080,  // Gray for armor
+                    metalness: 0.7,
+                    roughness: 0.3
+                });
+                const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+                body.position.y = 1.5;
+                body.castShadow = true;
+                this.mesh.add(body);
+                
+                // Head - helmet
+                const headGeometry = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+                const headMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x808080,  // Gray for helmet
+                    metalness: 0.7,
+                    roughness: 0.3
+                });
+                const head = new THREE.Mesh(headGeometry, headMaterial);
+                head.position.y = 2.4;
+                head.castShadow = true;
+                this.mesh.add(head);
+                
+                // Visor
+                const visorGeometry = new THREE.BoxGeometry(0.6, 0.1, 0.1);
+                const visorMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x111111  // Dark for visor
+                });
+                const visor = new THREE.Mesh(visorGeometry, visorMaterial);
+                visor.position.set(0, 2.4, 0.35);
+                this.mesh.add(visor);
+                
+                // Arms
+                const armGeometry = new THREE.BoxGeometry(0.25, 0.8, 0.25);
+                const leftArm = new THREE.Mesh(armGeometry, bodyMaterial);
+                leftArm.position.set(-0.525, 1.5, 0);
+                leftArm.castShadow = true;
+                this.mesh.add(leftArm);
+                
+                const rightArm = new THREE.Mesh(armGeometry, bodyMaterial);
+                rightArm.position.set(0.525, 1.5, 0);
+                rightArm.castShadow = true;
+                this.mesh.add(rightArm);
+                
+                // Legs
+                const legGeometry = new THREE.BoxGeometry(0.3, 0.9, 0.3);
+                const leftLeg = new THREE.Mesh(legGeometry, bodyMaterial);
+                leftLeg.position.set(-0.25, 0.5, 0);
+                leftLeg.castShadow = true;
+                this.mesh.add(leftLeg);
+                
+                const rightLeg = new THREE.Mesh(legGeometry, bodyMaterial);
+                rightLeg.position.set(0.25, 0.5, 0);
+                rightLeg.castShadow = true;
+                this.mesh.add(rightLeg);
+                
+                // Create sword using first available sword type
+                this.createSword(this.availableSwords[0]);
+            } else if (this.type === 'samurai') {
+                // Create samurai character with armor
+                
+                // Body - torso with armor plates
+                const bodyGeometry = new THREE.BoxGeometry(0.75, 1.1, 0.4);
+                const bodyMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x8B0000,  // Dark red for armor
+                    metalness: 0.5,
+                    roughness: 0.5
+                });
+                const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+                body.position.y = 1.5;
+                body.castShadow = true;
+                this.mesh.add(body);
+                
+                // Shoulder plates
+                const shoulderGeometry = new THREE.BoxGeometry(0.4, 0.2, 0.5);
+                const shoulderMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x000000,  // Black for armor plates
+                    metalness: 0.6,
+                    roughness: 0.4
+                });
+                
+                const leftShoulder = new THREE.Mesh(shoulderGeometry, shoulderMaterial);
+                leftShoulder.position.set(-0.4, 1.9, 0);
+                leftShoulder.castShadow = true;
+                this.mesh.add(leftShoulder);
+                
+                const rightShoulder = new THREE.Mesh(shoulderGeometry, shoulderMaterial);
+                rightShoulder.position.set(0.4, 1.9, 0);
+                rightShoulder.castShadow = true;
+                this.mesh.add(rightShoulder);
+                
+                // Head - helmet with face mask
+                const headGeometry = new THREE.BoxGeometry(0.55, 0.55, 0.55);
+                const headMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x000000,  // Black for helmet
+                    metalness: 0.6,
+                    roughness: 0.4
+                });
+                const head = new THREE.Mesh(headGeometry, headMaterial);
+                head.position.y = 2.4;
+                head.castShadow = true;
+                this.mesh.add(head);
+                
+                // Helmet top piece
+                const helmTopGeometry = new THREE.ConeGeometry(0.3, 0.3, 8);
+                const helmTopMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x8B0000,  // Dark red
+                    metalness: 0.5,
+                    roughness: 0.5
+                });
+                const helmTop = new THREE.Mesh(helmTopGeometry, helmTopMaterial);
+                helmTop.position.y = 2.8;
+                helmTop.castShadow = true;
+                this.mesh.add(helmTop);
+                
+                // Face mask
+                const maskGeometry = new THREE.BoxGeometry(0.55, 0.3, 0.1);
+                const maskMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x8B0000  // Dark red for mask
+                });
+                const mask = new THREE.Mesh(maskGeometry, maskMaterial);
+                mask.position.set(0, 2.3, 0.32);
+                this.mesh.add(mask);
+                
+                // Arms
+                const armGeometry = new THREE.BoxGeometry(0.22, 0.7, 0.22);
+                const armMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x8B0000,  // Dark red
+                });
+                
+                const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+                leftArm.position.set(-0.5, 1.5, 0);
+                leftArm.castShadow = true;
+                this.mesh.add(leftArm);
+                
+                const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+                rightArm.position.set(0.5, 1.5, 0);
+                rightArm.castShadow = true;
+                this.mesh.add(rightArm);
+                
+                // Legs
+                const legGeometry = new THREE.BoxGeometry(0.28, 0.85, 0.28);
+                const legMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x000000,  // Black
+                });
+                
+                const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
+                leftLeg.position.set(-0.25, 0.5, 0);
+                leftLeg.castShadow = true;
+                this.mesh.add(leftLeg);
+                
+                const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
+                rightLeg.position.set(0.25, 0.5, 0);
+                rightLeg.castShadow = true;
+                this.mesh.add(rightLeg);
+                
+                // Create sword using first available sword type
+                this.createSword(this.availableSwords[0]);
+            } else if (this.type === 'ninja') {
+                // Create ninja character with dark outfit
+                
+                // Body - slim torso
+                const bodyGeometry = new THREE.BoxGeometry(0.6, 1.0, 0.3);
+                const bodyMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x2F2F2F,  // Dark gray/black for ninja outfit
+                    metalness: 0.3,
+                    roughness: 0.7
+                });
+                const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+                body.position.y = 1.5;
+                body.castShadow = true;
+                this.mesh.add(body);
+                
+                // Head with mask
+                const headGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+                const headMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x2F2F2F,  // Dark gray/black for mask
+                    metalness: 0.3,
+                    roughness: 0.7
+                });
+                const head = new THREE.Mesh(headGeometry, headMaterial);
+                head.position.y = 2.3;
+                head.castShadow = true;
+                this.mesh.add(head);
+                
+                // Eyes (white strip for eyes)
+                const eyesGeometry = new THREE.BoxGeometry(0.5, 0.1, 0.05);
+                const eyesMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x808080,  // Light gray for eye slit
+                });
+                const eyes = new THREE.Mesh(eyesGeometry, eyesMaterial);
+                eyes.position.set(0, 2.3, 0.27);
+                this.mesh.add(eyes);
+                
+                // Ninja scarf
+                const scarfGeometry = new THREE.BoxGeometry(0.2, 0.2, 0.55);
+                const scarfMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x483D8B,  // Dark slate blue
+                });
+                const scarf = new THREE.Mesh(scarfGeometry, scarfMaterial);
+                scarf.position.set(0, 2.1, -0.1);
+                scarf.castShadow = true;
+                this.mesh.add(scarf);
+                
+                // Arms - slim
+                const armGeometry = new THREE.BoxGeometry(0.2, 0.7, 0.2);
+                const armMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x2F2F2F,  // Dark gray/black
+                });
+                
+                const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+                leftArm.position.set(-0.4, 1.5, 0);
+                leftArm.castShadow = true;
+                this.mesh.add(leftArm);
+                
+                const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+                rightArm.position.set(0.4, 1.5, 0);
+                rightArm.castShadow = true;
+                this.mesh.add(rightArm);
+                
+                // Legs - slim
+                const legGeometry = new THREE.BoxGeometry(0.25, 0.9, 0.25);
+                const legMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x2F2F2F,  // Dark gray/black
+                });
+                
+                const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
+                leftLeg.position.set(-0.2, 0.5, 0);
+                leftLeg.castShadow = true;
+                this.mesh.add(leftLeg);
+                
+                const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
+                rightLeg.position.set(0.2, 0.5, 0);
+                rightLeg.castShadow = true;
+                this.mesh.add(rightLeg);
+                
+                // Create sword using first available sword type
+                this.createSword(this.availableSwords[0]);
+            }
+        }
+        
+        createSword(type) {
+            this.sword = new THREE.Group();
+            this.swordType = type; // Store the current sword type
+            
+            // Default base stats that might be modified by sword type
+            this.swordStats = {
+                damage: 0,
+                speed: 0,
+                range: 0,
+                special: null
+            };
+            
+            if (type === 'broadsword') {
+                // Knight's broadsword - balanced weapon
+                this.swordStats.damage = 10;
+                this.swordStats.speed = 5;
+                this.swordStats.range = 7;
+                
+                const handleGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.3, 8);
+                const handleMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x8B4513  // Brown for handle
+                });
+                const handle = new THREE.Mesh(handleGeometry, handleMaterial);
+                handle.castShadow = true;
+                this.sword.add(handle);
+                
+                // Hilt
+                const hiltGeometry = new THREE.BoxGeometry(0.3, 0.05, 0.08);
+                const hiltMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xFFD700,  // Gold for hilt
+                    metalness: 0.9,
+                    roughness: 0.1
+                });
+                const hilt = new THREE.Mesh(hiltGeometry, hiltMaterial);
+                hilt.position.y = 0.175;
+                hilt.castShadow = true;
+                this.sword.add(hilt);
+                
+                // Blade
+                const bladeGeometry = new THREE.BoxGeometry(0.12, 0.8, 0.02);
+                const bladeMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xC0C0C0,  // Silver for blade
+                    metalness: 0.9,
+                    roughness: 0.1
+                });
+                const blade = new THREE.Mesh(bladeGeometry, bladeMaterial);
+                blade.position.y = 0.6;
+                blade.castShadow = true;
+                this.sword.add(blade);
+                
+                // Position sword in right hand
+                this.sword.position.set(0.7, 1.5, 0.2);
+                this.sword.rotation.z = Math.PI / 2;
+                this.mesh.add(this.sword);
+                
+            } else if (type === 'katana') {
+                // Samurai's katana - fast with medium damage
+                this.swordStats.damage = 8;
+                this.swordStats.speed = 9;
+                this.swordStats.range = 6;
+                this.swordStats.special = 'bleed'; // Special effect: bleeding damage over time
+                
+                const handleGeometry = new THREE.CylinderGeometry(0.03, 0.03, 0.35, 8);
+                const handleMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x000000  // Black for handle
+                });
+                const handle = new THREE.Mesh(handleGeometry, handleMaterial);
+                handle.castShadow = true;
+                this.sword.add(handle);
+                
+                // Tsuba (guard)
+                const tsubaGeometry = new THREE.CylinderGeometry(0.08, 0.08, 0.02, 8);
+                const tsubaMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x2F4F4F,  // Dark slate gray
+                    metalness: 0.8,
+                    roughness: 0.2
+                });
+                const tsuba = new THREE.Mesh(tsubaGeometry, tsubaMaterial);
+                tsuba.position.y = 0.175;
+                tsuba.rotation.x = Math.PI / 2;
+                tsuba.castShadow = true;
+                this.sword.add(tsuba);
+                
+                // Blade
+                const bladeGeometry = new THREE.BoxGeometry(0.04, 0.9, 0.01);
+                const bladeMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xC0C0C0,  // Silver for blade
+                    metalness: 0.9,
+                    roughness: 0.1
+                });
+                const blade = new THREE.Mesh(bladeGeometry, bladeMaterial);
+                blade.position.y = 0.65;
+                
+                // Slight curve to the katana blade
+                blade.rotation.x = -0.05;
+                blade.castShadow = true;
+                this.sword.add(blade);
+                
+                // Position sword in right hand
+                this.sword.position.set(0.65, 1.5, 0.2);
+                this.sword.rotation.z = Math.PI / 2;
+                this.mesh.add(this.sword);
+                
+            } else if (type === 'ninjato') {
+                // Ninja's ninjato - fast attack, less damage
+                this.swordStats.damage = 6;
+                this.swordStats.speed = 10;
+                this.swordStats.range = 5;
+                this.swordStats.special = 'stealth'; // Special effect: chance to strike invisibly
+                
+                const handleGeometry = new THREE.CylinderGeometry(0.025, 0.025, 0.3, 8);
+                const handleMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x000000  // Black for handle
+                });
+                const handle = new THREE.Mesh(handleGeometry, handleMaterial);
+                handle.castShadow = true;
+                this.sword.add(handle);
+                
+                // Small guard
+                const guardGeometry = new THREE.BoxGeometry(0.12, 0.02, 0.03);
+                const guardMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x2F2F2F,  // Dark gray
+                    metalness: 0.7,
+                    roughness: 0.3
+                });
+                const guard = new THREE.Mesh(guardGeometry, guardMaterial);
+                guard.position.y = 0.15;
+                guard.castShadow = true;
+                this.sword.add(guard);
+                
+                // Blade - straight and shorter than katana
+                const bladeGeometry = new THREE.BoxGeometry(0.03, 0.7, 0.01);
+                const bladeMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x0A0A0A,  // Very dark gray, almost black
+                    metalness: 0.8,
+                    roughness: 0.2
+                });
+                const blade = new THREE.Mesh(bladeGeometry, bladeMaterial);
+                blade.position.y = 0.55;
+                blade.castShadow = true;
+                this.sword.add(blade);
+                
+                // Position sword in right hand
+                this.sword.position.set(0.6, 1.5, 0.2);
+                this.sword.rotation.z = Math.PI / 2;
+                this.mesh.add(this.sword);
+                
+                // Add a second sword on the back (for show)
+                const backSword = this.sword.clone();
+                backSword.position.set(0, 1.8, -0.25);
+                backSword.rotation.z = 0;
+                backSword.rotation.x = Math.PI / 4;
+                this.mesh.add(backSword);
+                
+            } else if (type === 'greatsword') {
+                // Great sword - high damage, slow attack speed
+                this.swordStats.damage = 15;
+                this.swordStats.speed = 3;
+                this.swordStats.range = 9;
+                this.swordStats.special = 'stun'; // Special effect: chance to stun enemy
+                
+                // Handle
+                const handleGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.4, 8);
+                const handleMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x654321  // Dark brown for handle
+                });
+                const handle = new THREE.Mesh(handleGeometry, handleMaterial);
+                handle.castShadow = true;
+                this.sword.add(handle);
+                
+                // Hilt
+                const hiltGeometry = new THREE.BoxGeometry(0.35, 0.07, 0.1);
+                const hiltMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x8B4513,  // Darker brown for hilt
+                    metalness: 0.7,
+                    roughness: 0.3
+                });
+                const hilt = new THREE.Mesh(hiltGeometry, hiltMaterial);
+                hilt.position.y = 0.2;
+                hilt.castShadow = true;
+                this.sword.add(hilt);
+                
+                // Blade - wider and longer
+                const bladeGeometry = new THREE.BoxGeometry(0.15, 1.3, 0.03);
+                const bladeMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xA9A9A9,  // Dark gray for blade
+                    metalness: 0.8,
+                    roughness: 0.2
+                });
+                const blade = new THREE.Mesh(bladeGeometry, bladeMaterial);
+                blade.position.y = 0.9;
+                blade.castShadow = true;
+                this.sword.add(blade);
+                
+                // Position sword in both hands
+                this.sword.position.set(0.7, 1.5, 0.2);
+                this.sword.rotation.z = Math.PI / 2;
+                this.mesh.add(this.sword);
+                
+            } else if (type === 'rapier') {
+                // Rapier - fast thrusting attacks with precision
+                this.swordStats.damage = 7;
+                this.swordStats.speed = 9;
+                this.swordStats.range = 8;
+                this.swordStats.special = 'critical'; // Special effect: increased critical hit chance
+                
+                // Handle - thin grip
+                const handleGeometry = new THREE.CylinderGeometry(0.02, 0.02, 0.25, 8);
+                const handleMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xCD7F32  // Bronze for handle
+                });
+                const handle = new THREE.Mesh(handleGeometry, handleMaterial);
+                handle.castShadow = true;
+                this.sword.add(handle);
+                
+                // Ornate guard
+                const guardGeometry = new THREE.TorusGeometry(0.07, 0.01, 8, 16);
+                const guardMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xCD7F32,  // Bronze for guard
+                    metalness: 0.8,
+                    roughness: 0.2
+                });
+                const guard = new THREE.Mesh(guardGeometry, guardMaterial);
+                guard.position.y = 0.13;
+                guard.rotation.x = Math.PI / 2;
+                guard.castShadow = true;
+                this.sword.add(guard);
+                
+                // Blade - very thin and long
+                const bladeGeometry = new THREE.BoxGeometry(0.02, 1.0, 0.01);
+                const bladeMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xE0E0E0,  // Bright silver for blade
+                    metalness: 0.9,
+                    roughness: 0.1
+                });
+                const blade = new THREE.Mesh(bladeGeometry, bladeMaterial);
+                blade.position.y = 0.7;
+                blade.castShadow = true;
+                this.sword.add(blade);
+                
+                // Position sword in right hand
+                this.sword.position.set(0.65, 1.5, 0.2);
+                this.sword.rotation.z = Math.PI / 2;
+                this.mesh.add(this.sword);
+                
+            } else if (type === 'dual_daggers') {
+                // Dual daggers - extremely fast, close range
+                this.swordStats.damage = 4;
+                this.swordStats.speed = 15;
+                this.swordStats.range = 3;
+                this.swordStats.special = 'bleed'; // Special effect: increased bleeding chance
+                
+                // First dagger
+                const dagger1 = new THREE.Group();
+                
+                // Handle
+                const handleGeometry = new THREE.CylinderGeometry(0.02, 0.02, 0.15, 8);
+                const handleMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x2F4F4F  // Dark slate for handle
+                });
+                const handle = new THREE.Mesh(handleGeometry, handleMaterial);
+                handle.castShadow = true;
+                dagger1.add(handle);
+                
+                // Blade - short and pointed
+                const bladeGeometry = new THREE.BoxGeometry(0.025, 0.3, 0.01);
+                const bladeMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xC0C0C0,  // Silver for blade
+                    metalness: 0.9,
+                    roughness: 0.1
+                });
+                const blade = new THREE.Mesh(bladeGeometry, bladeMaterial);
+                blade.position.y = 0.23;
+                blade.castShadow = true;
+                dagger1.add(blade);
+                
+                // Add first dagger to sword group
+                dagger1.position.set(0, 0, 0);
+                this.sword.add(dagger1);
+                
+                // Second dagger (clone of first)
+                const dagger2 = dagger1.clone();
+                dagger2.position.set(0, 0, -0.15);
+                this.sword.add(dagger2);
+                
+                // Position daggers in right hand
+                this.sword.position.set(0.6, 1.5, 0.2);
+                this.sword.rotation.z = Math.PI / 2;
+                this.mesh.add(this.sword);
+                
+                // Add an additional dagger on left hand
+                const leftDagger = dagger1.clone();
+                leftDagger.position.set(-1.25, 1.5, 0.2); // Left hand position
+                leftDagger.rotation.z = Math.PI / 2;
+                this.mesh.add(leftDagger);
+            }
+        }
+        
+        update(delta) {
+            // ------------- FIRST-PERSON MOVEMENT SYSTEM -------------
+            // Get camera direction vectors from Game class
+            let forward, right;
+            
+            if (this.game.isFirstPerson && this.game.camera) {
+                // Get the camera's direction vectors
+                forward = new THREE.Vector3(0, 0, -1);
+                forward.applyQuaternion(this.game.camera.quaternion);
+                forward.y = 0; // Keep movement horizontal
+                forward.normalize();
+                
+                // Calculate right vector - perpendicular to forward
+                right = new THREE.Vector3(1, 0, 0);
+                right.applyQuaternion(this.game.camera.quaternion);
+                right.y = 0; // Keep movement horizontal
+                right.normalize();
+            } else {
+                // Fallback using character rotation
+                forward = new THREE.Vector3(-Math.sin(this.rotation), 0, -Math.cos(this.rotation));
+                right = new THREE.Vector3(Math.cos(this.rotation), 0, -Math.sin(this.rotation));
+            }
+            
+            // Calculate movement vector based on key presses
+            let moveX = 0;
+            let moveZ = 0;
+            
+            // Add movement based on WASD keys
+            if (this.game.controls.forward) { // W - Move forward
+                moveX += forward.x;
+                moveZ += forward.z;
+            }
+            if (this.game.controls.backward) { // S - Move backward
+                moveX -= forward.x;
+                moveZ -= forward.z;
+            }
+            if (this.game.controls.left) { // A - Strafe left
+                moveX -= right.x;
+                moveZ -= right.z;
+            }
+            if (this.game.controls.right) { // D - Strafe right
+                moveX += right.x;
+                moveZ += right.z;
+            }
+            
+            // Normalize movement direction if moving diagonally
+            this.normalizeVector(this.movementDirection);
+            
+            // Normalize movement vector for diagonal movement
+            if (moveX !== 0 && moveZ !== 0) {
+                const length = Math.sqrt(moveX * moveX + moveZ * moveZ);
+                moveX /= length;
+                moveZ /= length;
+            }
+            
+            // Check sprint status
+            const isMoving = moveX !== 0 || moveZ !== 0;
+            
+            // Only allow sprinting if we have some stamina and not depleted
+            if (this.game.controls.sprint && isMoving) {
+                if (this.stamina > 0 && !this.staminaDepleted) {
+                    this.isSprinting = true;
+                    // Apply immediate boost to velocity when starting sprint
+                    this.velocity.x *= 1.3;
+                    this.velocity.z *= 1.3;
+                    console.log('SPRINTING ACTIVATED');
+                } else {
+                    console.log('Cannot sprint: stamina =', this.stamina, 'depleted =', this.staminaDepleted);
+                }
+            } else {
+                this.isSprinting = false;
+            }
+            
+            // If stamina is critically low, mark as depleted and require recovery
+            if (this.stamina <= 5) {
+                this.staminaDepleted = true;
+            }
+            
+            // If stamina recovered enough, allow sprinting again
+            if (this.staminaDepleted && this.stamina >= 30) {
+                this.staminaDepleted = false;
+            }
+            
+            // Visual feedback when sprinting
+            if (this.isSprinting) {
+                console.log('Sprinting: ' + this.stamina);
+            }
+            
+            // Calculate current speed with a more dramatic difference
+            const currentSpeed = this.isSprinting ? this.sprintSpeed : this.moveSpeed;
+            // Debug sprint status
+            if (this.game.controls.sprint) {
+                console.log('Sprint key pressed, isSprinting:', this.isSprinting, 'Stamina:', this.stamina, 'Depleted:', this.staminaDepleted);
+                console.log('Current speed:', currentSpeed);
+            }
+            
+            // Apply acceleration to velocity
+            if (isMoving) {
+                // Accelerate toward target direction
+                this.velocity.x += moveX * this.acceleration;
+                this.velocity.z += moveZ * this.acceleration;
+            }
+            
+            // Apply friction/drag to slow down
+            this.velocity.x *= this.friction;
+            this.velocity.z *= this.friction;
+            
+            // Cap maximum speed
+            const speed = Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z);
+            if (speed > currentSpeed) {
+                const scale = currentSpeed / speed;
+                this.velocity.x *= scale;
+                this.velocity.z *= scale;
+            }
+            
+            // Keep character at ground level, removed jumping
+            this.position.y = this.groundLevel;
+            
+            // Update stamina
+            if (this.isSprinting) {
+                // Force sprint to be true if the key is down and we have stamina
+                if (this.game.controls.sprint && this.stamina > 0 && !this.staminaDepleted) {
+                    this.isSprinting = true;
+                }
+                
+                this.stamina = Math.max(0, this.stamina - 35 * delta); // Further increased stamina cost
+                
+                // Apply direct movement boost when sprinting
+                this.velocity.x *= 1.05;
+                this.velocity.z *= 1.05;
+                
+                // Provide more pronounced visual feedback for sprinting
+                if (this.sword) {
+                    // More noticeable bob while running
+                    this.sword.position.y += Math.sin(Date.now() * 0.015) * 0.01;
+                    // Add slight side-to-side sway
+                    this.sword.position.x += Math.cos(Date.now() * 0.01) * 0.003;
+                }
+                
+                // Add camera shake effect during sprint
+                if (this.game.camera && Math.random() > 0.8) {
+                    this.game.camera.position.y += (Math.random() - 0.5) * 0.03;
+                }
+                
+            } else {
+                // Faster recovery when not moving
+                const recoveryRate = (moveX === 0 && moveZ === 0) ? 20 * delta : 10 * delta;
+                this.stamina = Math.min(this.maxStamina, this.stamina + recoveryRate);
+                
+                // Reset sword position if not sprinting
+                if (this.sword && this.originalSwordRotation) {
+                    // Smoothly return to original position
+                    if (this.sword.position.x !== this.originalSwordRotation.x) {
+                        this.sword.position.x = THREE.MathUtils.lerp(
+                            this.sword.position.x,
+                            this.originalSwordRotation.x || 0,
+                            0.1
+                        );
+                    }
+                }
+            }
+            
+            // Update stamina UI
+            const staminaBar = document.getElementById('stamina-bar');
+            if (staminaBar) {
+                staminaBar.style.width = `${(this.stamina / this.maxStamina) * 100}%`;
+            }
+            
+            // Store previous position before moving (for collision rollback)
+            const prevPosition = {
+                x: this.position.x,
+                z: this.position.z
+            };
+            
+            // Apply movement to position
+            this.position.x += this.velocity.x * delta;
+            this.position.z += this.velocity.z * delta;
+            
+            // Keep character within map boundaries
+            const mapSize = this.game.map ? (this.game.map.size / 2 - 2) : 25;
+            this.position.x = Math.max(-mapSize, Math.min(mapSize, this.position.x));
+            this.position.z = Math.max(-mapSize, Math.min(mapSize, this.position.z));
+            
+            // Check for collisions with other players in multiplayer
+            if (!this.isRemotePlayer && this.game && this.game.multiplayer && this.game.multiplayer.players) {
+                const playerRadius = 0.5; // Player collision radius
+                
+                // Check collisions with each remote player
+                Object.values(this.game.multiplayer.players).forEach(remotePlayer => {
+                    if (!remotePlayer || !remotePlayer.position) return;
+                    
+                    // Calculate distance between players
+                    const dx = this.position.x - remotePlayer.position.x;
+                    const dz = this.position.z - remotePlayer.position.z;
+                    const distance = Math.sqrt(dx * dx + dz * dz);
+                    
+                    // If players are overlapping
+                    if (distance < playerRadius * 2) {
+                        // Calculate push direction
+                        const pushX = dx / distance;
+                        const pushZ = dz / distance;
+                        
+                        // Calculate push amount
+                        const pushAmount = playerRadius * 2 - distance;
+                        
+                        // Push local player away from collision
+                        this.position.x += pushX * pushAmount * 0.5;
+                        this.position.z += pushZ * pushAmount * 0.5;
+                    }
+                });
+            }
+            
+            // Check collisions with terrain objects
+            if (this.game.collisionObjects) {
+                const characterRadius = 0.5; // Radius of the character for collision
+                
+                for (let obj of this.game.collisionObjects) {
+                    if (obj.type === 'hill' || obj.type === 'rock') {
+                        // Calculate distance between character and obstacle
+                        const dx = this.position.x - obj.position.x;
+                        const dz = this.position.z - obj.position.z;
+                        const distance = Math.sqrt(dx * dx + dz * dz);
+                        
+                        // Check if collision occurred
+                        if (distance < characterRadius + obj.radius) {
+                            // Collision detected! Move character back to previous position
+                            this.position.x = prevPosition.x;
+                            this.position.z = prevPosition.z;
+                            
+                            // Calculate normal vector of collision
+                            const nx = dx / distance;
+                            const nz = dz / distance;
+                            
+                            // Apply slight push away from obstacle
+                            this.position.x += nx * 0.1;
+                            this.position.z += nz * 0.1;
+                            
+                            // Reduce velocity in collision direction
+                            const dot = this.velocity.x * nx + this.velocity.z * nz;
+                            this.velocity.x -= dot * nx;
+                            this.velocity.z -= dot * nz;
+                            
+                            // Apply friction to slow down after collision
+                            this.velocity.x *= 0.8;
+                            this.velocity.z *= 0.8;
+                            
+                            break; // Only handle one collision at a time
+                        }
+                    }
+                }
+            }
+            
+            // Update mesh position
+            if (this.mesh) {
+                this.mesh.position.set(this.position.x, this.position.y, this.position.z);
+                
+                // In first-person, rotation matches camera
+                if (this.game.isFirstPerson && this.game.mouseX !== undefined) {
+                    this.rotation = this.game.mouseX;
+                    this.mesh.rotation.y = this.rotation;
+                }
+            }
+            
+            // Normalize for diagonal movement to prevent moving faster diagonally
+            if (moveX !== 0 && moveZ !== 0) {
+                const length = Math.sqrt(moveX * moveX + moveZ * moveZ);
+                moveX /= length;
+                moveZ /= length;
+            }
+            
+            // Calculate target rotation if moving
+            if (moveX !== 0 || moveZ !== 0) {
+                this.targetRotation = Math.atan2(moveX, moveZ);
+            }
+            
+            // Smoothly rotate toward target direction
+            if (this.rotation !== this.targetRotation) {
+                // Find shortest rotation direction
+                let diff = this.targetRotation - this.rotation;
+                // Normalize to range [-PI, PI]
+                while (diff > Math.PI) diff -= 2 * Math.PI;
+                while (diff < -Math.PI) diff += 2 * Math.PI;
+                
+                // Apply smooth rotation
+                const step = this.rotationSpeed * delta;
+                if (Math.abs(diff) < step) {
+                    this.rotation = this.targetRotation;
+                } else if (diff > 0) {
+                    this.rotation += step;
+                } else {
+                    this.rotation -= step;
+                }
+                
+                // Normalize rotation
+                while (this.rotation > Math.PI * 2) this.rotation -= Math.PI * 2;
+                while (this.rotation < 0) this.rotation += Math.PI * 2;
+            }
+            
+            // Handle sprinting
+            if (this.game.controls.sprint && (moveX !== 0 || moveZ !== 0)) {
+                if (this.stamina > 0) {
+                    this.isSprinting = true;
+                    this.stamina = Math.max(0, this.stamina - this.staminaSprintCost * delta);
+                } else {
+                    this.isSprinting = false;
+                }
+            } else {
+                this.isSprinting = false;
+                // Regenerate stamina when not sprinting
+                this.stamina = Math.min(this.staminaMax, this.stamina + this.staminaRegenRate * delta);
+            }
+            
+            // Apply acceleration/deceleration
+            if (moveX !== 0 || moveZ !== 0) {
+                // Apply sprint multiplier if sprinting
+                const effectiveMaxSpeed = this.isSprinting ? 
+                    this.maxSpeed * this.sprintMultiplier : this.maxSpeed;
+                
+                // Accelerate
+                this.speed = Math.min(effectiveMaxSpeed, this.speed + this.acceleration * delta);
+            } else {
+                // Decelerate
+                this.speed = Math.max(0, this.speed - this.deceleration * delta);
+            }
+            
+            // Handle jumping
+            if (this.game.controls.jump && this.canJump && !this.isJumping) {
+                this.isJumping = true;
+                this.canJump = false;
+                this.velocity.y = this.jumpForce;
+            }
+            
+            // Apply gravity to vertical velocity
+            this.velocity.y -= this.gravity * delta;
+            
+            // Update vertical position
+            this.position.y += this.velocity.y * delta;
+            
+            // Ground collision detection
+            if (this.position.y <= 0) {
+                this.position.y = 0;
+                this.velocity.y = 0;
+                this.isJumping = false;
+                this.canJump = true; // Can jump again when on ground
+            }
+            // Handle attack cooldown
+            if (this.game.controls.attack && !this.isAttacking && 
+                Date.now() - this.lastAttackTime > this.attackCooldown * 1000) {
+                this.attack();
+            }
+            
+            // Update attack animation
+            if (this.isAttacking) {
+                // Enhanced attack animation
+                const attackDuration = 400; // ms - slightly longer for a more fluid animation
+                const attackProgress = (Date.now() - this.lastAttackTime) / attackDuration;
+                
+                if (attackProgress < 1) {
+                    // First-person view needs more exaggerated animations to be visible
+                    const inFirstPerson = this.game.isFirstPerson;
+                    const amplifier = inFirstPerson ? 1.5 : 1.0; // Larger movement in first-person
+                    
+                    // Split animation into wind-up, forward slash, and follow-through
+                    if (attackProgress < 0.2) {
+                        // Wind-up phase - pull back with more dramatic movement
+                        const pullBackFactor = Math.sin(attackProgress / 0.2 * Math.PI/2);
+                        this.sword.rotation.x = this.originalSwordRotation.x - Math.PI * 0.5 * pullBackFactor * amplifier;
+                        // Add more pronounced side rotation
+                        this.sword.rotation.z = this.originalSwordRotation.z + 0.3 * pullBackFactor * amplifier;
+                        // Slight upward lift of the sword
+                        this.sword.position.y += 0.1 * pullBackFactor;
+                        
+                        // For first-person, add more horizontal movement
+                        if (inFirstPerson) {
+                            this.sword.position.x += 0.05 * pullBackFactor;
+                        }
+                    } 
+                    else if (attackProgress < 0.6) {
+                        // Forward slash phase - faster and more fluid
+                        const swingProgress = (attackProgress - 0.2) / 0.4; // normalize
+                        const swingCurve = Math.sin(swingProgress * Math.PI);
+                        
+                        // Swing sword forward and down with acceleration
+                        this.sword.rotation.x = this.originalSwordRotation.x - Math.PI * 0.5 + Math.PI * 1.0 * swingProgress * amplifier;
+                        // Return side rotation with slight wobble effect
+                        this.sword.rotation.z = this.originalSwordRotation.z + 0.3 - (0.4 * swingProgress) + (swingCurve * 0.1);
+                        
+                        // Forward thrust during swing
+                        const thrustAmount = Math.sin(swingProgress * Math.PI) * 0.2 * amplifier;
+                        if (this.sword.position.z !== undefined) {
+                            if (inFirstPerson) {
+                                // More dramatic motion in first-person
+                                this.sword.position.z = -0.5 - thrustAmount;
+                            } else {
+                                this.sword.position.z = this.originalSwordRotation.posZ - thrustAmount;
+                            }
+                        }
+                        
+                        // Add dynamic movement to y-position
+                        if (inFirstPerson) {
+                            this.sword.position.y = -0.3 + (0.2 * swingCurve);
+                            this.sword.position.x = 0.5 - (0.2 * swingProgress);
+                        } else {
+                            this.sword.position.y = (this.originalSwordRotation.y || 0) + 0.1 - (0.15 * swingProgress);
+                        }
+                    }
+                    else {
+                        // Follow-through and recovery phase
+                        const recoveryProgress = (attackProgress - 0.6) / 0.4;
+                        const recoveryEase = 1 - Math.pow(1 - recoveryProgress, 2); // Ease out quad
+                        
+                        // Gradual return to starting position
+                        this.sword.rotation.x = this.originalSwordRotation.x + Math.PI * 0.5 - (Math.PI * 0.5 * recoveryEase);
+                        this.sword.rotation.z = this.originalSwordRotation.z - 0.1 + (0.1 * recoveryEase);
+                        
+                        if (this.sword.position.z !== undefined) {
+                            if (inFirstPerson) {
+                                this.sword.position.z = -0.5 + (0.1 * recoveryEase);
+                                this.sword.position.x = 0.3 + (0.2 * recoveryEase);
+                                this.sword.position.y = -0.3 + (0.1 * (1-recoveryEase));
+                            } else {
+                                this.sword.position.z = this.originalSwordRotation.posZ - 0.2 + (0.2 * recoveryEase);
+                            }
+                        }
+                    }
+                } else {
+                    // Reset sword position
+                    if (this.originalSwordRotation) {
+                        this.sword.rotation.x = this.originalSwordRotation.x;
+                        this.sword.rotation.y = this.originalSwordRotation.y;
+                        this.sword.rotation.z = this.originalSwordRotation.z;
+                        
+                        // Different reset for first-person vs third-person
+                        if (this.game.isFirstPerson) {
+                            // Reset to a good first-person position
+                            this.sword.position.set(0.5, -0.3, -0.5);
+                        } else {
+                            // Reset sword position for third-person
+                            if (this.sword.position.z !== undefined) {
+                                this.sword.position.z = this.originalSwordRotation.posZ || 0;
+                            }
+                        }
+                    }
+                    this.isAttacking = false;
+                }
+            }
+            
+            // Handle block state and animation
+            if (this.game.controls.block && !this.isBlocking && !this.isAttacking && this.stamina > 10) {
+                this.startBlocking();
+            } else if (!this.game.controls.block && this.isBlocking) {
+                this.stopBlocking();
+            }
+            
+            // Block animation
+            if (this.isBlocking && this.sword) {
+                // Position the sword in a defensive stance
+                if (!this.blockAnimationInitialized) {
+                    // Store original position/rotation if not already stored
+                    this.blockOriginalPosition = {
+                        x: this.sword.position.x || 0,
+                        y: this.sword.position.y || 0,
+                        z: this.sword.position.z || 0,
+                        rotX: this.sword.rotation.x || 0,
+                        rotY: this.sword.rotation.y || 0,
+                        rotZ: this.sword.rotation.z || 0
+                    };
+                    this.blockAnimationInitialized = true;
+                }
+                
+                // Slowly move to blocking position with slight bobbing effect
+                const blockBobbing = Math.sin(Date.now() * 0.005) * 0.03;
+                
+                if (this.game.isFirstPerson) {
+                    // First-person blocking stance - sword held up in front (more visible)
+                    this.sword.position.set(0.3, -0.1 + blockBobbing, -0.3);
+                    this.sword.rotation.x = Math.PI * 0.25;
+                    this.sword.rotation.y = -Math.PI * 0.1;
+                    this.sword.rotation.z = Math.PI * 0.6;
+                } else {
+                    // Third-person blocking stance
+                    this.sword.rotation.x = Math.PI * 0.3;
+                    this.sword.rotation.z = Math.PI / 2 + 0.2;
+                    this.sword.position.y += blockBobbing;
+                }
+                
+                // Drain stamina while blocking
+                this.stamina = Math.max(0, this.stamina - 8 * delta);
+                
+                // If stamina reaches zero, force stop blocking
+                if (this.stamina <= 0) {
+                    this.stopBlocking();
+                }
+            }
+        }
+        
+        startBlocking() {
+            if (!this.isAttacking && !this.isBlocking && this.stamina > 10) {
+                this.isBlocking = true;
+                this.blockAnimationInitialized = false;
+                console.log(`${this.type} is blocking with ${this.swordType}!`);
+            }
+        }
+        
+        stopBlocking() {
+            if (this.isBlocking) {
+                this.isBlocking = false;
+                
+                // Return sword to original position
+                if (this.sword && this.blockOriginalPosition) {
+                    this.sword.position.set(
+                        this.blockOriginalPosition.x,
+                        this.blockOriginalPosition.y,
+                        this.blockOriginalPosition.z
+                    );
+                    this.sword.rotation.x = this.blockOriginalPosition.rotX;
+                    this.sword.rotation.y = this.blockOriginalPosition.rotY;
+                    this.sword.rotation.z = this.blockOriginalPosition.rotZ;
+                }
+                
+                this.blockAnimationInitialized = false;
+                console.log(`${this.type} stopped blocking.`);
+            }
+        }
+        
+        normalizeVector(vector) {
+            if (!vector) return;
+            const length = Math.sqrt(vector.x * vector.x + vector.z * vector.z);
+            if (length > 0) {
+                vector.x /= length;
+                vector.z /= length;
+            }
+        }
+        
+        attack() {
+            if (!this.isAttacking && !this.isBlocking) {
+                this.isAttacking = true;
+                this.lastAttackTime = Date.now();
+                this.attackStartTime = Date.now();
+                
+                // Notify multiplayer system about attack
+                if (this.game && this.game.multiplayer && !this.isRemotePlayer) {
+                    this.game.multiplayer.sendAttack();
+                }
+                
+                // Calculate stamina cost based on weapon damage
+                let attackStaminaCost = this.attackStaminaCost; // Base stamina cost
+                
+                // Add bonus stamina cost based on weapon damage
+                if (this.swordStats && this.swordStats.damage) {
+                    // Scale stamina cost based on weapon damage
+                    // Higher damage weapons consume more stamina
+                    const weaponDamageFactor = this.swordStats.damage / 10; // Normalize to factor
+                    const weaponStaminaCost = Math.round(attackStaminaCost * weaponDamageFactor);
+                    
+                    // Total stamina cost = base cost + weapon-specific cost
+                    attackStaminaCost += weaponStaminaCost;
+                    
+                    console.log(`Weapon stamina cost: ${weaponStaminaCost}, Total: ${attackStaminaCost}`);
+                }
+                
+                // Store the cost for reference and logging
+                this.staminaCostForLastAttack = attackStaminaCost;
+                
+                // Apply the stamina cost
+                this.stamina = Math.max(0, this.stamina - attackStaminaCost);
+                
+                // Update UI to show stamina consumption
+                const staminaBar = document.getElementById('stamina-bar');
+                if (staminaBar) {
+                    staminaBar.style.width = `${(this.stamina / this.maxStamina) * 100}%`;
+                }
+                
+                // Add stamina depletion check for attacking
+                if (this.stamina <= 5) {
+                    this.staminaDepleted = true;
+                }
+                
+                // Save original sword position for resetting after animation
+                this.originalSwordRotation = {
+                    x: this.sword.rotation.x || 0,
+                    y: this.sword.rotation.y || 0,
+                    z: this.sword.rotation.z || 0,
+                    posZ: this.sword.position.z || 0
+                };
+                
+                // Position the sword for first-person view if needed
+                if (this.game.isFirstPerson) {
+                    // Move sword to be visible in first-person view during attack
+                    // Always update the position to ensure visibility
+                    this.sword.position.set(0.5, -0.3, -0.5); // Position in front of camera
+                    this.sword.rotation.y = Math.PI / 4; // Angle for natural holding position
+                    this.swordPositionedForFP = true;
+                }
+                
+                // Add a slight randomness to sword swing for more natural feel
+                if (this.sword) {
+                    const randomAngle = (Math.random() - 0.5) * 0.1;
+                    this.sword.rotation.y += randomAngle;
+                }
+                
+                // Apply sword stats to attack
+                const totalDamage = this.attackPower + (this.sword ? this.swordStats.damage : 0);
+                
+                // Show damage and stamina cost
+                console.log(`${this.type} attacks with ${this.swordType} for ${totalDamage} damage!`);
+                console.log(`Weapon: ${this.swordType}, Damage: ${this.swordStats.damage}, Stamina Cost: ${this.staminaCostForLastAttack}`);
+                
+                // Special effects based on sword type
+                if (this.swordStats && this.swordStats.special) {
+                    console.log(`Special effect activated: ${this.swordStats.special}`);
+                }
+            }
+        }
+        
+        // Method to switch to next available sword
+        switchWeapon() {
+            if (this.availableSwords.length <= 1) return;
+            
+            // Remove current sword from scene
+            if (this.sword) {
+                this.mesh.remove(this.sword);
+            }
+            
+            // Update sword index
+            this.currentSwordIndex = (this.currentSwordIndex + 1) % this.availableSwords.length;
+            
+            // Create new sword
+            this.createSword(this.availableSwords[this.currentSwordIndex]);
+            
+            console.log(`Switched to ${this.swordType}`);
+            
+            // Update the weapon info UI
+            this.updateWeaponInfoUI();
+        }
+        
+        // Method to update weapon info in the UI
+        updateWeaponInfoUI() {
+            const weaponInfo = document.getElementById('weapon-info');
+            if (!weaponInfo) return;
+            
+            // Get current weapon stats
+            const weapon = this.swordType || 'Unknown';
+            const stats = this.swordStats || {
+                damage: 0,
+                speed: 0,
+                range: 0,
+                special: 'None'
+            };
+            
+            // Create weapon info HTML with formatted stats
+            let weaponHTML = `
+                <div class="ui-title">Weapon Info</div>
+                <div class="weapon-name">${weapon.toUpperCase()}</div>
+            `;
+            
+            // Add each stat in a formatted row
+            const weaponStats = [
+                {label: 'Damage', value: stats.damage},
+                {label: 'Speed', value: stats.speed},
+                {label: 'Range', value: stats.range},
+                {label: 'Special', value: stats.special || 'None', special: true}
+            ];
+            
+            weaponStats.forEach(stat => {
+                weaponHTML += `
+                <div class="stat-row">
+                    <div class="stat-label">${stat.label}:</div>
+                    <div class="stat-value ${stat.special ? 'special-stat' : ''}">${stat.value}</div>
+                </div>`;
+            });
+            
+            weaponInfo.innerHTML = weaponHTML;
+            
+            // Add a weapon switched notification
+            const notification = document.createElement('div');
+            notification.className = 'weapon-switch-notification';
+            notification.textContent = `Switched to ${weapon.toUpperCase()}`;
+            notification.style.position = 'absolute';
+            notification.style.bottom = '100px';
+            notification.style.left = '50%';
+            notification.style.transform = 'translateX(-50%)';
+            notification.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+            notification.style.color = '#ffffff';
+            notification.style.padding = '10px 20px';
+            notification.style.borderRadius = '5px';
+            notification.style.fontFamily = 'Arial, sans-serif';
+            notification.style.zIndex = '1000';
+            notification.style.opacity = '1';
+            notification.style.transition = 'opacity 0.5s';
+            document.body.appendChild(notification);
+            
+            // Fade out and remove after a short delay
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                setTimeout(() => {
+                    document.body.removeChild(notification);
+                }, 500);
+            }, 1500);
+        }
+        
+        /**
+         * Shows the respawn UI when the player is defeated
+         */
+        showRespawnUI() {
+            // Create respawn overlay if it doesn't exist
+            let respawnOverlay = document.getElementById('respawn-overlay');
+            if (!respawnOverlay) {
+                respawnOverlay = document.createElement('div');
+                respawnOverlay.id = 'respawn-overlay';
+                respawnOverlay.innerHTML = `
+                    <div class="respawn-container">
+                        <h2>You were defeated!</h2>
+                        <p>Ready to try again?</p>
+                        <button id="respawn-button">Respawn</button>
+                    </div>
+                `;
+                document.body.appendChild(respawnOverlay);
+                
+                // Style the respawn overlay
+                const style = document.createElement('style');
+                style.textContent = `
+                    #respawn-overlay {
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        height: 100%;
+                        background-color: rgba(0, 0, 0, 0.7);
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        z-index: 1000;
+                    }
+                    .respawn-container {
+                        background-color: rgba(50, 50, 50, 0.9);
+                        padding: 30px;
+                        border-radius: 10px;
+                        text-align: center;
+                        color: white;
+                    }
+                    #respawn-button {
+                        padding: 10px 20px;
+                        font-size: 18px;
+                        background-color: #006ec7;
+                        color: white;
+                        border: none;
+                        border-radius: 5px;
+                        cursor: pointer;
+                        margin-top: 20px;
+                    }
+                    #respawn-button:hover {
+                        background-color: #0085f2;
+                    }
+                `;
+                document.head.appendChild(style);
+                
+                // Add event listener to respawn button
+                document.getElementById('respawn-button').addEventListener('click', () => {
+                    this.respawn();
+                    respawnOverlay.remove();
+                });
+            } else {
+                respawnOverlay.style.display = 'flex';
+            }
+        }
+        
+        /**
+         * Respawns the player at a random position on the map
+         */
+        respawn() {
+            // Reset health and stamina
+            this.health = 100;
+            this.stamina = this.maxStamina;
+            
+            // Update health bar
+            document.getElementById('health').style.width = `${this.health}%`;
+            document.getElementById('game-state').textContent = `HP: ${this.health}`;
+            
+            // Generate random position for respawn
+            const mapSize = this.game.map ? (this.game.map.size / 2 - 10) : 15;
+            const randomX = (Math.random() * 2 - 1) * mapSize;
+            const randomZ = (Math.random() * 2 - 1) * mapSize;
+            
+            // Set new position
+            this.position.x = randomX;
+            this.position.z = randomZ;
+            this.mesh.position.set(randomX, this.position.y, randomZ);
+            
+            // Reset attack and block states
+            this.isAttacking = false;
+            this.isBlocking = false;
+            
+            // Notify server about respawn
+            if (this.game && this.game.multiplayer) {
+                this.game.multiplayer.sendRespawn(this.position);
+            }
+        }
+        
+        takeDamage(amount, attackerId) {
+            if (this.isBlocking) {
+                amount = Math.floor(amount / 2); // Half damage when blocking
+            }
+            
+            this.health -= amount;
+            
+            // Update health bar if it's the local player
+            if (!this.isRemotePlayer) {
+                document.getElementById('health').style.width = `${this.health}%`;
+                document.getElementById('game-state').textContent = `HP: ${this.health}`;
+            }
+            
+            if (this.health <= 0) {
+                this.health = 0;
+                console.log(`${this.type} has been defeated!`);
+                
+                // Handle defeat in multiplayer
+                if (!this.isRemotePlayer && this.game && this.game.multiplayer) {
+                    // If this is the local player, show defeat screen
+                    this.game.multiplayer.handlePlayerDefeat({ id: this.game.multiplayer.socket.id });
+                }
+            }
+            
+            // If this damage was caused by another player, notify the server
+            if (!this.isRemotePlayer && attackerId && this.game.multiplayer) {
+                this.game.multiplayer.sendDamage(attackerId, amount);
+            }
+            
+            // If player health is zero, show respawn UI after a delay
+            if (this.health <= 0 && !this.isRemotePlayer) {
+                setTimeout(() => {
+                    this.showRespawnUI();
+                }, 2000);
+            }
+        }
+    }
+    
+    // Game Class
+    class Game {
+        constructor() {
+            this.scene = null;
+            this.camera = null;
+            this.renderer = null;
+            this.clock = new THREE.Clock();
+            this.playerCharacter = null;
+            this.characterType = null;
+            this.map = null;
+            this.players = {};
+            // First-person related properties
+            this.isFirstPerson = true;
+            this.mouseX = 0;
+            this.mouseY = 0;
+            this.mouseSensitivity = 0.002;
+            this.lookDirection = { x: 0, z: -1 };
+            this.yaw = 0;
+            this.pitch = 0;
+            this.verticalAngleLimit = Math.PI / 3;
+            
+            this.controls = {
+                forward: false,
+                backward: false,
+                left: false,
+                right: false,
+                attack: false,
+                block: false,
+                switchWeapon: false,
+                sprint: false,
+                jump: false
+            };
+            this.powerUps = [];
+            this.powerUpSpawnTime = 0;
+            this.powerUpSpawnInterval = 10000; // Spawn power-up every 10 seconds
+            
+            // Bind methods
+            this.init = this.init.bind(this);
+            this.createMap = this.createMap.bind(this);
+            this.animate = this.animate.bind(this);
+            this.handleKeyDown = this.handleKeyDown.bind(this);
+            this.handleKeyUp = this.handleKeyUp.bind(this);
+            this.startGame = this.startGame.bind(this);
+            this.selectCharacter = this.selectCharacter.bind(this);
+            this.createCharacter = this.createCharacter.bind(this);
+            this.spawnPowerUp = this.spawnPowerUp.bind(this);
+            this.checkPowerUpCollisions = this.checkPowerUpCollisions.bind(this);
+        }
+        
+        init() {
+            // Set up Three.js scene
+            this.scene = new THREE.Scene();
+            this.scene.background = new THREE.Color(0x87CEEB); // Sky blue
+            
+            // Camera setup
+            this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            this.camera.position.set(0, 5, 10);
+            
+            // First-person camera properties
+            this.cameraHeight = 1.8; // Player eye height
+            this.cameraOffset = 5; // Only used for third-person
+            this.isFirstPerson = true; // Start in first-person mode
+            this.mouseX = 0;
+            this.mouseY = 0;
+            this.mouseSensitivity = 0.002;
+            this.verticalAngle = 0;
+            this.verticalAngleLimit = Math.PI / 3; // Limit up/down look angle
+            
+            // Hide crosshair initially until mouse is locked
+            if (document.getElementById('crosshair')) {
+                document.getElementById('crosshair').style.display = 'none';
+            }
+            
+            // Renderer setup
+            this.renderer = new THREE.WebGLRenderer({ antialias: true });
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+            this.renderer.shadowMap.enabled = true;
+            document.body.appendChild(this.renderer.domElement);
+            
+            // Add lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            this.scene.add(ambientLight);
+            
+            // Initialize multiplayer system
+            this.multiplayer = new MultiplayerManager(this);
+            
+            // Connect to multiplayer server if player name is provided
+            const playerName = document.getElementById('player-name').value;
+            if (playerName && playerName.trim() !== '') {
+                // Update connection status
+                document.getElementById('connection-status').textContent = 'Server Status: Connecting...';
+                
+                // Connect to server
+                this.multiplayer.connect(playerName, this.characterType, 
+                    this.playerCharacter ? this.playerCharacter.swordType : 'broadsword');
+            }
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(50, 50, 50);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            this.scene.add(directionalLight);
+            
+            // Create the map
+            this.createMap();
+            
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                this.camera.aspect = window.innerWidth / window.innerHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+            
+            // Set up character selection
+            const characterOptions = document.querySelectorAll('.character-option');
+            characterOptions.forEach(option => {
+                option.addEventListener('click', () => this.selectCharacter(option));
+            });
+            
+            document.getElementById('start-button').addEventListener('click', this.startGame);
+            
+            // Start animation loop
+            this.animate();
+        }
+        
+        createMap() {
+            // Create the ground - increased by 3x
+            const mapSize = 300; // Increased from 100
+            const groundGeometry = new THREE.PlaneGeometry(mapSize, mapSize);
+            const groundMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x3a7e4c,
+                roughness: 0.8,
+                metalness: 0.2
+            });
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            this.scene.add(ground);
+            
+            // Create a list to store collision objects
+            this.collisionObjects = [];
+            
+            // Add some terrain features (hills) - more hills for larger map
+            for (let i = 0; i < 45; i++) { // Increased from 15
+                const hillHeight = Math.random() * 3 + 1;
+                const hillRadius = Math.random() * 3 + 1;
+                const hillGeometry = new THREE.ConeGeometry(
+                    hillRadius, 
+                    hillHeight, 
+                    8
+                );
+                const hillMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x2a5e3c,
+                    roughness: 0.9
+                });
+                const hill = new THREE.Mesh(hillGeometry, hillMaterial);
+                
+                // Random position on the map - increased range
+                hill.position.x = Math.random() * 270 - 135; // Increased from 90-45
+                hill.position.z = Math.random() * 270 - 135; // Increased from 90-45
+                hill.position.y = hillHeight / 2;
+                
+                hill.castShadow = true;
+                hill.receiveShadow = true;
+                this.scene.add(hill);
+                
+                // Add to collision objects with the proper radius
+                this.collisionObjects.push({
+                    type: 'hill',
+                    position: new THREE.Vector3(hill.position.x, hill.position.y, hill.position.z),
+                    radius: hillRadius
+                });
+            }
+            
+            // Add some rocks - more rocks for larger map
+            for (let i = 0; i < 60; i++) { // Increased from 20
+                const rockRadius = Math.random() * 0.8 + 0.3;
+                const rockGeometry = new THREE.DodecahedronGeometry(
+                    rockRadius,
+                    0
+                );
+                const rockMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x888888,
+                    roughness: 0.9,
+                    metalness: 0.1
+                });
+                const rock = new THREE.Mesh(rockGeometry, rockMaterial);
+                
+                // Random position on the map - increased range
+                rock.position.x = Math.random() * 270 - 135; // Increased from 90-45
+                rock.position.z = Math.random() * 270 - 135; // Increased from 90-45
+                rock.position.y = rockRadius / 2;
+                
+                // Random rotation
+                rock.rotation.x = Math.random() * Math.PI;
+                rock.rotation.z = Math.random() * Math.PI;
+                
+                rock.castShadow = true;
+                rock.receiveShadow = true;
+                this.scene.add(rock);
+                
+                // Add to collision objects with the proper radius
+                this.collisionObjects.push({
+                    type: 'rock',
+                    position: new THREE.Vector3(rock.position.x, rock.position.y, rock.position.z),
+                    radius: rockRadius * 1.5 // Make collision slightly larger than visual
+                });
+            }
+            
+            // Create boundary walls - increased size for larger map
+            const wallHeight = 10; // Increased from 5
+            const wallThickness = 2; // Increased from 1
+            const wallColor = 0x8b4513; // Brown
+            const mapHalfSize = 150; // Half of 300
+            
+            // Create walls - enlarged for bigger map
+            const walls = [
+                { pos: [0, wallHeight/2, -mapHalfSize], size: [300, wallHeight, wallThickness] }, // North
+                { pos: [0, wallHeight/2, mapHalfSize], size: [300, wallHeight, wallThickness] },  // South
+                { pos: [-mapHalfSize, wallHeight/2, 0], size: [wallThickness, wallHeight, 300] }, // West
+                { pos: [mapHalfSize, wallHeight/2, 0], size: [wallThickness, wallHeight, 300] }   // East
+            ];
+            
+            walls.forEach(wall => {
+                const wallGeometry = new THREE.BoxGeometry(wall.size[0], wall.size[1], wall.size[2]);
+                const wallMaterial = new THREE.MeshStandardMaterial({ 
+                    color: wallColor,
+                    roughness: 0.8
+                });
+                const wallMesh = new THREE.Mesh(wallGeometry, wallMaterial);
+                wallMesh.position.set(wall.pos[0], wall.pos[1], wall.pos[2]);
+                wallMesh.castShadow = true;
+                wallMesh.receiveShadow = true;
+                this.scene.add(wallMesh);
+                
+                // Add walls to collision objects
+                this.collisionObjects.push({
+                    type: 'wall',
+                    position: new THREE.Vector3(wall.pos[0], wall.pos[1], wall.pos[2]),
+                    size: new THREE.Vector3(wall.size[0], wall.size[1], wall.size[2])
+                });
+            });
+            
+            // Store map reference
+            this.map = {
+                ground: ground,
+                size: 300 // Size of the map (width/depth) - increased from 100
+            };
+            
+            // Create initial power-up
+            this.spawnPowerUp();
+        }
+        
+        selectCharacter(optionElement) {
+            // Remove selected class from all options
+            document.querySelectorAll('.character-option').forEach(el => {
+                el.classList.remove('selected');
+            });
+            
+            // Add selected class to clicked option
+            optionElement.classList.add('selected');
+            
+            // Store selected character
+            this.characterType = optionElement.getAttribute('data-character');
+            
+            // Enable start button
+            const startButton = document.getElementById('start-button');
+            startButton.disabled = false;
+            startButton.textContent = 'Start Game';
+        }
+        
+        startGame() {
+            // Validate player name
+            const playerName = document.getElementById('player-name').value;
+            if (!playerName || playerName.trim() === '') {
+                alert('Please enter your player name');
+                return;
+            }
+            
+            if (!this.characterType) {
+                alert('Please select a character');
+                return;
+            }
+            
+            // Hide the start screen
+            document.getElementById('start-screen').style.display = 'none';
+            
+            // Set up event listeners for controls
+            window.addEventListener('keydown', this.handleKeyDown);
+            window.addEventListener('keyup', this.handleKeyUp);
+            
+            // Add mouse movement listener for first-person camera
+            document.addEventListener('mousemove', this.handleMouseMove.bind(this));
+            
+            // Add mouse click listeners
+            document.addEventListener('mousedown', this.handleMouseDown.bind(this));
+            document.addEventListener('mouseup', this.handleMouseUp.bind(this));
+            
+            // Lock pointer for first-person controls
+            this.renderer.domElement.addEventListener('click', () => {
+                this.renderer.domElement.requestPointerLock();
+            });
+            
+            // Prevent context menu on right-click
+            this.renderer.domElement.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+            });
+            
+            // Create player character based on selection
+            this.createCharacter();
+            
+            // Start spawning power-ups
+            this.powerUpSpawnTime = Date.now();
+            
+            console.log(`Starting game with character: ${this.characterType}`);
+        }
+        
+        createCharacter() {
+            // Create a new character based on the selected type
+            this.playerCharacter = new Character(this.characterType, this);
+            this.playerCharacter.isRemotePlayer = false; // Mark as local player
+            
+            // Store player's name
+            this.playerCharacter.name = document.getElementById('player-name').value;
+            
+            // Add character to the scene
+            this.scene.add(this.playerCharacter.mesh);
+            
+            // Position the character in the center of the map
+            this.playerCharacter.position = { x: 0, y: 0, z: 0 };
+            
+            // Set up third-person camera following the player
+            this.camera.position.set(0, 5, 10);
+            
+            // Display controls and weapon info UI
+            this.createGameUI();
+            
+            // Initialize the players object if not already done
+            if (!this.players) {
+                this.players = {};
+            }
+            
+            // If multiplayer is enabled, initialize the connection
+            if (this.multiplayer) {
+                this.multiplayer.initialize(this.playerCharacter);
+            }
+        }
+        
+        /**
+         * Creates a character for a remote player joining the game
+         * @param {Object} playerData - Data about the remote player
+         * @param {string} playerData.id - Socket ID of the remote player
+         * @param {string} playerData.name - Name of the remote player
+         * @param {string} playerData.type - Character type of the remote player
+         * @param {string} playerData.swordType - Sword type of the remote player
+         * @param {Object} playerData.position - Initial position of the remote player
+         */
+        createRemoteCharacter(playerData) {
+            // Create a new character for the remote player
+            const remoteCharacter = new Character(playerData.type, this);
+            remoteCharacter.isRemotePlayer = true;
+            remoteCharacter.id = playerData.id;
+            remoteCharacter.name = playerData.name;
+            
+            // Set the remote player's sword type if specified
+            if (playerData.swordType) {
+                remoteCharacter.switchSword(playerData.swordType);
+            }
+            
+            // Add the remote character to the scene
+            this.scene.add(remoteCharacter.mesh);
+            
+            // Position the remote character based on the data received
+            if (playerData.position) {
+                remoteCharacter.position = playerData.position;
+                remoteCharacter.mesh.position.set(
+                    playerData.position.x,
+                    playerData.position.y,
+                    playerData.position.z
+                );
+            } else {
+                // Default starting position if none provided
+                remoteCharacter.position = { x: 0, y: 0, z: 0 };
+            }
+            
+            // Store the remote player in our players object
+            if (!this.players) {
+                this.players = {};
+            }
+            this.players[playerData.id] = remoteCharacter;
+            
+            // Create floating name tag above player
+            this.createPlayerNameTag(remoteCharacter);
+            
+            console.log(`Remote player ${playerData.name} joined as ${playerData.type}`);
+            
+            return remoteCharacter;
+        }
+        
+        /**
+         * Creates a floating name tag above a player character
+         * @param {Character} character - The character to add the name tag to
+         */
+        createPlayerNameTag(character) {
+            if (!character || !character.name || !character.mesh) return;
+            
+            // Create a canvas to render the name tag
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 64;
+            const context = canvas.getContext('2d');
+            
+            // Draw the name tag background
+            context.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw the player name
+            context.font = '24px Arial';
+            context.fillStyle = character.isRemotePlayer ? 'red' : 'green';
+            context.textAlign = 'center';
+            context.textBaseline = 'middle';
+            context.fillText(character.name, canvas.width / 2, canvas.height / 2);
+            
+            // Create texture from canvas
+            const texture = new THREE.CanvasTexture(canvas);
+            const material = new THREE.SpriteMaterial({ map: texture });
+            
+            // Create sprite for the name tag
+            const sprite = new THREE.Sprite(material);
+            sprite.scale.set(2, 0.5, 1);
+            sprite.position.y = 2.5; // Position above the character's head
+            
+            // Add the name tag to the character mesh
+            character.mesh.add(sprite);
+            character.nameTag = sprite;
+            
+            // Update player count
+            this.updatePlayerCount();
+        }
+        
+        /**
+         * Updates the player count display in the UI
+         */
+        updatePlayerCount() {
+            const playersOnlineElement = document.getElementById('players-online');
+            if (!playersOnlineElement) return;
+            
+            // Count all players (local + remote)
+            let playerCount = this.playerCharacter ? 1 : 0;
+            if (this.players) {
+                playerCount += Object.keys(this.players).length;
+            }
+            
+            playersOnlineElement.textContent = `Players Online: ${playerCount}`;
+            
+            // Update connection status if we have a multiplayer connection
+            if (this.multiplayer && this.multiplayer.connected) {
+                document.getElementById('connection-status').textContent = 'Server Status: Connected';
+            }
+        }
+        
+        createGameUI() {
+            // Add CSS styles to head
+            const style = document.createElement('style');
+            style.textContent = `
+                .game-ui-panel {
+                    position: absolute;
+                    background-color: rgba(0, 0, 0, 0.7);
+                    color: white;
+                    padding: 15px;
+                    border-radius: 8px;
+                    font-family: 'Arial', sans-serif;
+                    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+                    z-index: 1000;
+                    backdrop-filter: blur(3px);
+                    border: 1px solid rgba(255, 255, 255, 0.1);
+                }
+                
+                .controls-info {
+                    top: 15px;
+                    left: 15px;
+                    max-width: 250px;
+                }
+                
+                .weapon-info {
+                    bottom: 15px;
+                    left: 15px;
+                    border-left: 4px solid #f44336;
+                }
+                
+                .ui-title {
+                    margin: 0 0 10px 0;
+                    color: #f44336;
+                    font-size: 1.2em;
+                    font-weight: bold;
+                    text-transform: uppercase;
+                    letter-spacing: 1px;
+                    padding-bottom: 5px;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+                }
+                
+                .control-row {
+                    display: flex;
+                    margin-bottom: 8px;
+                }
+                
+                .control-key {
+                    background-color: rgba(255, 255, 255, 0.2);
+                    padding: 2px 6px;
+                    border-radius: 4px;
+                    margin-right: 8px;
+                    min-width: 70px;
+                    text-align: center;
+                    font-weight: bold;
+                    color: #ffffff;
+                }
+                
+                .stat-row {
+                    display: flex;
+                    justify-content: space-between;
+                    margin-bottom: 6px;
+                    align-items: center;
+                }
+                
+                .stat-label {
+                    font-weight: bold;
+                    width: 70px;
+                }
+                
+                .stat-value {
+                    text-align: right;
+                    color: #4fc3f7;
+                }
+                
+                .weapon-name {
+                    font-size: 1.3em;
+                    color: #f5f5f5;
+                    margin-bottom: 10px;
+                    text-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+                    font-weight: bold;
+                }
+                
+                .special-stat {
+                    color: #ffeb3b;
+                }
+                
+                .crosshair {
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    color: rgba(255, 255, 255, 0.7);
+                    font-size: 20px;
+                    pointer-events: none;
+                    z-index: 1001;
+                }
+            `;
+            document.head.appendChild(style);
+            
+            // Create a crosshair for first-person mode
+            const crosshair = document.createElement('div');
+            crosshair.id = 'crosshair';
+            crosshair.className = 'crosshair';
+            crosshair.innerHTML = '+';
+            document.body.appendChild(crosshair);
+            
+            // Create controls panel
+            const controlsInfo = document.createElement('div');
+            controlsInfo.className = 'game-ui-panel controls-info';
+            
+            let controlsHTML = `<div class="ui-title">Controls</div>`;
+            
+            // Add each control in a formatted row
+            const controls = [
+                {key: 'WASD', action: 'Move'},
+                {key: 'SPACE', action: 'Sprint'},
+                {key: 'MOUSE', action: 'Look Around'},
+                {key: 'LEFT CLICK', action: 'Attack'},
+                {key: 'RIGHT CLICK', action: 'Block'},
+                {key: 'F', action: 'Activate Power-Up'},
+                {key: 'Q', action: 'Switch Weapon'},
+                {key: 'CLICK', action: 'Lock Mouse'}
+            ];
+            
+            controls.forEach(control => {
+                controlsHTML += `
+                <div class="control-row">
+                    <div class="control-key">${control.key}</div>
+                    <div>${control.action}</div>
+                </div>`;
+            });
+            
+            controlsInfo.innerHTML = controlsHTML;
+            document.body.appendChild(controlsInfo);
+            
+            // Create weapon info panel
+            const weaponInfo = document.createElement('div');
+            weaponInfo.id = 'weapon-info';
+            weaponInfo.className = 'game-ui-panel weapon-info';
+            document.body.appendChild(weaponInfo);
+            
+            // Initialize the weapon info UI
+            if (this.playerCharacter && typeof this.playerCharacter.updateWeaponInfoUI === 'function') {
+                this.playerCharacter.updateWeaponInfoUI();
+            } else {
+                // Fallback if the character doesn't have the updateWeaponInfoUI method
+                // This will be initialized with placeholder content
+                weaponInfo.innerHTML = `
+                    <div class="ui-title">Weapon Info</div>
+                    <div class="weapon-name">LOADING...</div>
+                    <div class="stat-row">
+                        <div class="stat-label">Damage:</div>
+                        <div class="stat-value">--</div>
+                    </div>
+                    <div class="stat-row">
+                        <div class="stat-label">Speed:</div>
+                        <div class="stat-value">--</div>
+                    </div>
+                    <div class="stat-row">
+                        <div class="stat-label">Range:</div>
+                        <div class="stat-value">--</div>
+                    </div>
+                    <div class="stat-row">
+                        <div class="stat-label">Special:</div>
+                        <div class="stat-value special-stat">--</div>
+                    </div>
+                `;
+            }
+            
+            // Create stamina bar with label
+            const staminaBarWrapper = document.createElement('div');
+            staminaBarWrapper.style.position = 'absolute';
+            staminaBarWrapper.style.bottom = '25px';
+            staminaBarWrapper.style.left = '50%';
+            staminaBarWrapper.style.transform = 'translateX(-50%)';
+            staminaBarWrapper.style.width = '300px';
+            staminaBarWrapper.style.zIndex = '1000';
+            document.body.appendChild(staminaBarWrapper);
+            
+            const staminaLabel = document.createElement('div');
+            staminaLabel.textContent = 'STAMINA';
+            staminaLabel.style.color = '#FFA500';
+            staminaLabel.style.textAlign = 'center';
+            staminaLabel.style.fontSize = '12px';
+            staminaLabel.style.fontWeight = 'bold';
+            staminaLabel.style.marginBottom = '5px';
+            staminaLabel.style.textShadow = '0 0 3px rgba(0, 0, 0, 0.8)';
+            staminaBarWrapper.appendChild(staminaLabel);
+            
+            const staminaBarContainer = document.createElement('div');
+            staminaBarContainer.id = 'stamina-container';
+            staminaBarContainer.style.width = '100%';
+            staminaBarContainer.style.height = '10px';
+            staminaBarContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+            staminaBarContainer.style.borderRadius = '5px';
+            staminaBarContainer.style.overflow = 'hidden';
+            staminaBarContainer.style.border = '1px solid rgba(255, 255, 255, 0.3)';
+            staminaBarContainer.style.boxShadow = '0 0 8px rgba(0, 0, 0, 0.5)';
+            staminaBarWrapper.appendChild(staminaBarContainer);
+            
+            const staminaBar = document.createElement('div');
+            staminaBar.id = 'stamina-bar';
+            staminaBar.style.width = '100%';
+            staminaBar.style.height = '100%';
+            staminaBar.style.backgroundColor = '#FFA500';
+            staminaBar.style.transition = 'width 0.2s';
+            staminaBar.style.boxShadow = 'inset 0 0 10px rgba(255, 255, 255, 0.5)';
+            staminaBar.style.backgroundImage = 'linear-gradient(to right, #FFD700, #FFA500)';
+            staminaBarContainer.appendChild(staminaBar);
+            
+            // Create health bar with label and icon
+            const healthBarWrapper = document.createElement('div');
+            healthBarWrapper.style.position = 'absolute';
+            healthBarWrapper.style.top = '20px';
+            healthBarWrapper.style.right = '20px';
+            healthBarWrapper.style.width = '200px';
+            healthBarWrapper.style.zIndex = '1000';
+            healthBarWrapper.style.display = 'flex';
+            healthBarWrapper.style.flexDirection = 'column';
+            document.body.appendChild(healthBarWrapper);
+            
+            const healthHeader = document.createElement('div');
+            healthHeader.style.display = 'flex';
+            healthHeader.style.justifyContent = 'space-between';
+            healthHeader.style.alignItems = 'center';
+            healthHeader.style.marginBottom = '5px';
+            healthBarWrapper.appendChild(healthHeader);
+            
+            const healthIcon = document.createElement('div');
+            healthIcon.innerHTML = '❤️';
+            healthIcon.style.marginRight = '5px';
+            healthIcon.style.fontSize = '16px';
+            healthHeader.appendChild(healthIcon);
+            
+            const healthLabel = document.createElement('div');
+            healthLabel.textContent = 'HEALTH';
+            healthLabel.style.color = '#f44336';
+            healthLabel.style.flex = '1';
+            healthLabel.style.fontSize = '12px';
+            healthLabel.style.fontWeight = 'bold';
+            healthLabel.style.textShadow = '0 0 3px rgba(0, 0, 0, 0.8)';
+            healthHeader.appendChild(healthLabel);
+            
+            const healthValue = document.createElement('div');
+            healthValue.id = 'health-value';
+            healthValue.textContent = '100';
+            healthValue.style.color = '#ffffff';
+            healthValue.style.fontSize = '14px';
+            healthValue.style.fontWeight = 'bold';
+            healthValue.style.textShadow = '0 0 3px rgba(0, 0, 0, 0.8)';
+            healthHeader.appendChild(healthValue);
+            
+            const healthBarContainer = document.createElement('div');
+            healthBarContainer.id = 'health-container';
+            healthBarContainer.style.width = '100%';
+            healthBarContainer.style.height = '15px';
+            healthBarContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+            healthBarContainer.style.borderRadius = '7px';
+            healthBarContainer.style.overflow = 'hidden';
+            healthBarContainer.style.border = '1px solid rgba(255, 255, 255, 0.3)';
+            healthBarContainer.style.boxShadow = '0 0 8px rgba(0, 0, 0, 0.5)';
+            healthBarWrapper.appendChild(healthBarContainer);
+            
+            const healthBar = document.createElement('div');
+            healthBar.id = 'health-bar';
+            healthBar.style.width = '100%';
+            healthBar.style.height = '100%';
+            healthBar.style.backgroundImage = 'linear-gradient(to right, #ff5252, #f44336)';
+            healthBar.style.boxShadow = 'inset 0 0 10px rgba(255, 255, 255, 0.5)';
+            healthBar.style.transition = 'width 0.3s';
+            healthBarContainer.appendChild(healthBar);
+        }
+        
+        handleKeyDown = (event) => {
+            switch(event.key.toLowerCase()) {
+                case 'w': this.controls.forward = true; break;
+                case 's': this.controls.backward = true; break;
+                case 'a': this.controls.left = true; break;
+                case 'd': this.controls.right = true; break;
+                case ' ': 
+                    // Space is only for sprinting now
+                    this.controls.sprint = true;
+                    break;
+                case 'f': 
+                    // F for power-up activation
+                    this.activatePowerUp();
+                    break;
+                case 'q': 
+                    // Handle weapon switching on keydown only
+                    if (!this.controls.switchWeapon) {
+                        this.controls.switchWeapon = true;
+                        if (this.playerCharacter) {
+                            this.playerCharacter.switchWeapon();
+                        }
+                    }
+                    break;
+            }
+        }
+        
+        handleKeyUp = (event) => {
+            switch(event.key.toLowerCase()) {
+                case 'w': this.controls.forward = false; break;
+                case 's': this.controls.backward = false; break;
+                case 'a': this.controls.left = false; break;
+                case 'd': this.controls.right = false; break;
+                case ' ': 
+                    // Space is only for sprinting now
+                    this.controls.sprint = false;
+                    break;
+                case 'q': this.controls.switchWeapon = false; break;
+            }
+        }
+        
+        handleMouseMove = (event) => {
+            if (document.pointerLockElement === this.renderer.domElement) {
+                // Apply mouse movement to camera rotation (with sensitivity)
+                this.yaw -= event.movementX * this.mouseSensitivity;
+                this.pitch -= event.movementY * this.mouseSensitivity;
+                
+                // Limit vertical angle (pitch)
+                this.pitch = Math.max(-this.verticalAngleLimit, Math.min(this.verticalAngleLimit, this.pitch));
+                
+                // Update camera rotation
+                if (this.camera) {
+                    this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
+                }
+                
+                // Store current rotation for character
+                this.mouseX = this.yaw;
+                this.mouseY = this.pitch;
+                
+                // Update look direction vector for movement calculations
+                this.lookDirection = new THREE.Vector3(0, 0, -1);
+                this.lookDirection.applyEuler(new THREE.Euler(this.pitch, this.yaw, 0, 'YXZ'));
+                
+                // Show crosshair when mouse is locked
+                const crosshair = document.getElementById('crosshair');
+                if (crosshair) crosshair.style.display = 'block';
+            } else {
+                // Hide crosshair when mouse is not locked
+                const crosshair = document.getElementById('crosshair');
+                if (crosshair) crosshair.style.display = 'none';
+            }
+        }
+        
+        handleMouseDown(event) {
+            if (document.pointerLockElement === this.renderer.domElement) {
+                // Left mouse button for attack
+                if (event.button === 0) {
+                    this.controls.attack = true;
+                    
+                    // Raycast in the direction the player is looking
+                    if (this.playerCharacter && this.lookDirection) {
+                        const raycaster = new THREE.Raycaster();
+                        raycaster.set(
+                            this.camera.position,
+                            this.lookDirection.normalize()
+                        );
+                        
+                        const intersects = raycaster.intersectObjects(this.scene.children, true);
+                        
+                        // Flash the crosshair to indicate hit
+                        const crosshair = document.getElementById('crosshair');
+                        if (crosshair) {
+                            crosshair.style.color = 'rgba(255, 0, 0, 0.9)';
+                            setTimeout(() => {
+                                crosshair.style.color = 'rgba(255, 255, 255, 0.7)';
+                            }, 100);
+                        }
+                        
+                        console.log('Attack direction:', this.lookDirection);
+                    }
+                }
+                // Right mouse button for block
+                else if (event.button === 2) {
+                    this.controls.block = true;
+                }
+            }
+        }
+        
+        handleMouseUp = (event) => {
+            // Left mouse button release
+            if (event.button === 0) {
+                this.controls.attack = false;
+            }
+            // Right mouse button release
+            else if (event.button === 2) {
+                this.controls.block = false;
+                if (this.playerCharacter) {
+                    this.playerCharacter.stopBlocking();
+                }
+            }
+        }
+        
+        activatePowerUp() {
+            if (this.playerCharacter && this.playerCharacter.activePowerUps && 
+                this.playerCharacter.activePowerUps.length > 0) {
+                // Use the first available power-up
+                const powerUp = this.playerCharacter.activePowerUps[0];
+                console.log(`Activating power-up: ${powerUp.type}`);
+                
+                // Apply power-up effect
+                switch(powerUp.type) {
+                    case 'health':
+                        this.playerCharacter.health = Math.min(100, this.playerCharacter.health + powerUp.healAmount);
+                        break;
+                    case 'speed':
+                        // Apply temporary speed boost
+                        const origSpeed = this.playerCharacter.maxSpeed;
+                        this.playerCharacter.maxSpeed *= powerUp.speedBoost;
+                        setTimeout(() => {
+                            this.playerCharacter.maxSpeed = origSpeed;
+                        }, powerUp.duration * 1000);
+                        break;
+                    case 'power':
+                        // Apply temporary power boost
+                        const origPower = this.playerCharacter.attackPower;
+                        this.playerCharacter.attackPower *= powerUp.powerBoost;
+                        setTimeout(() => {
+                            this.playerCharacter.attackPower = origPower;
+                        }, powerUp.duration * 1000);
+                        break;
+                }
+                
+                // Remove the used power-up
+                this.playerCharacter.activePowerUps.shift();
+            }
+        }
+        
+        animate() {
+            requestAnimationFrame(this.animate);
+            
+            const delta = this.clock.getDelta();
+            const time = this.clock.getElapsedTime() * 1000; // Convert to ms
+            
+            // Update game logic
+            if (this.playerCharacter) {
+                // Update player character
+                this.playerCharacter.update(delta);
+                
+                // Update camera based on view mode
+                if (this.isFirstPerson) {
+                    // First-person view with mouse look
+                    const eyeHeight = this.playerCharacter.position.y + this.cameraHeight;
+                    
+                    // Position camera at player's eye level
+                    this.camera.position.set(
+                        this.playerCharacter.position.x,
+                        eyeHeight,
+                        this.playerCharacter.position.z
+                    );
+                    
+                    // Camera rotation is already handled in mouse move handler
+                    // But we need to update the lookDirection for raycasting during attacks
+                    this.lookDirection = new THREE.Vector3(0, 0, -1);
+                    this.lookDirection.applyQuaternion(this.camera.quaternion);
+                    
+                    // Make player model invisible in first-person but keep weapons visible
+                    if (this.playerCharacter.mesh) {
+                        // Only show weapons in first person
+                        this.playerCharacter.mesh.traverse((child) => {
+                            if (child.isMesh) {
+                                // Keep sword/weapon visible but hide other body parts
+                                if (child === this.playerCharacter.sword) {
+                                    child.visible = true;
+                                    
+                                    // Position sword in front of camera if needed
+                                    // Adjust position for first-person view
+                                    child.position.set(0.5, -0.3, -0.5); // Right side, more visible position
+                                } else {
+                                    child.visible = false;
+                                }
+                            }
+                        });
+                    }
+                } else {
+                    // Third-person view
+                    const cameraDistance = this.cameraOffset;
+                    const cameraHeight = 3;
+                    
+                    // Calculate desired camera position based on player rotation
+                    const cameraOffset = new THREE.Vector3(
+                        -Math.sin(this.playerCharacter.rotation) * cameraDistance,
+                        cameraHeight,
+                        -Math.cos(this.playerCharacter.rotation) * cameraDistance
+                    );
+                    
+                    const targetCameraPos = new THREE.Vector3(
+                        this.playerCharacter.position.x + cameraOffset.x,
+                        this.playerCharacter.position.y + cameraOffset.y,
+                        this.playerCharacter.position.z + cameraOffset.z
+                    );
+                    
+                    // Camera follows with smoothing
+                    const cameraLerpFactor = 7 * delta;
+                    this.camera.position.lerp(targetCameraPos, cameraLerpFactor);
+                    
+                    // Look at player with slight offset
+                    const playerEyePos = new THREE.Vector3(
+                        this.playerCharacter.position.x,
+                        this.playerCharacter.position.y + 1.5,
+                        this.playerCharacter.position.z
+                    );
+                    this.camera.lookAt(playerEyePos);
+                    
+                    // Make sure player model is visible in third-person
+                    if (this.playerCharacter.mesh) {
+                        this.playerCharacter.mesh.traverse((child) => {
+                            if (child.isMesh) {
+                                child.visible = true;
+                            }
+                        });
+                    }
+                }
+                
+                // Update weapon info display
+                const weaponInfo = document.getElementById('weapon-info');
+                if (weaponInfo && this.playerCharacter.swordType) {
+                    // Get weapon stats
+                    const stats = this.playerCharacter.swordStats;
+                    weaponInfo.innerHTML = `
+                        <h3>Weapon: ${this.playerCharacter.swordType}</h3>
+                        <p>Damage: ${stats.damage}</p>
+                        <p>Speed: ${stats.speed}</p>
+                        <p>Range: ${stats.range}</p>
+                        ${stats.special ? `<p>Special: ${stats.special}</p>` : ''}
+                    `;
+                }
+                
+                // Update stamina bar
+                const staminaBar = document.getElementById('stamina-bar');
+                if (staminaBar) {
+                    const staminaPercent = (this.playerCharacter.stamina / this.playerCharacter.staminaMax) * 100;
+                    staminaBar.style.width = `${staminaPercent}%`;
+                    
+                    // Change color based on stamina level
+                    if (staminaPercent < 20) {
+                        staminaBar.style.backgroundColor = '#FF3300'; // Low stamina (red)
+                    } else if (staminaPercent < 50) {
+                        staminaBar.style.backgroundColor = '#FFCC00'; // Medium stamina (yellow)
+                    } else {
+                        staminaBar.style.backgroundColor = '#66CC00'; // High stamina (green)
+                    }
+                }
+                
+                // Update health bar
+                const healthBar = document.getElementById('health-bar');
+                if (healthBar) {
+                    const healthPercent = (this.playerCharacter.health / 100) * 100;
+                    healthBar.style.width = `${healthPercent}%`;
+                }
+                
+                // Check for power-up collisions
+                this.checkPowerUpCollisions();
+            }
+            
+            // Animate power-ups (floating and rotating)
+            this.powerUps.forEach(powerUp => {
+                powerUp.animate(time);
+            });
+            
+            // Spawn new power-ups at intervals
+            if (time - this.powerUpSpawnTime > this.powerUpSpawnInterval) {
+                this.spawnPowerUp();
+                this.powerUpSpawnTime = time;
+            }
+            
+            // Render the scene
+            this.renderer.render(this.scene, this.camera);
+        }
+        // Function to spawn power-ups
+        spawnPowerUp() {
+            // Randomly select power-up type
+            const types = ['health', 'speed', 'power'];
+            const randomType = types[Math.floor(Math.random() * types.length)];
+            
+            // Find a position away from obstacles and other power-ups
+            let validPosition = false;
+            let position;
+            
+            while (!validPosition) {
+                position = {
+                    x: Math.random() * 240 - 120, // Increased for larger map
+                    y: 1,
+                    z: Math.random() * 240 - 120 // Increased for larger map
+                };
+                
+                // Check for collisions with other power-ups
+                validPosition = true;
+                for (const powerUp of this.powerUps) {
+                    const distance = Math.sqrt(
+                        Math.pow(position.x - powerUp.position.x, 2) +
+                        Math.pow(position.z - powerUp.position.z, 2)
+                    );
+                    
+                    if (distance < 5) { // Minimum distance between power-ups
+                        validPosition = false;
+                        break;
+                    }
+                }
+            }
+            
+            // Create and add the power-up
+            new PowerUp(randomType, this, position);
+        }
+        
+        // Function to check for collisions between player and power-ups
+        checkPowerUpCollisions() {
+            if (!this.playerCharacter || this.powerUps.length === 0) return;
+            
+            const playerPos = this.playerCharacter.mesh.position;
+            
+            for (let i = this.powerUps.length - 1; i >= 0; i--) {
+                const powerUp = this.powerUps[i];
+                if (!powerUp.active) continue;
+                
+                const distance = Math.sqrt(
+                    Math.pow(playerPos.x - powerUp.mesh.position.x, 2) +
+                    Math.pow(playerPos.z - powerUp.mesh.position.z, 2)
+                );
+                
+                if (distance < powerUp.collisionRadius) {
+                    powerUp.collect(this.playerCharacter);
+                }
+            }
+        }
+    }
+    </script>
+    <!-- Load multiplayer integration -->
+    <script src="multiplayer.js"></script>
+</body>
+</html>
