@@ -4,8 +4,42 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>3D Multiplayer Sword Fighting Game</title>
-    <!-- Socket.io client library -->
+    <!-- Primary Socket.io client library loaded directly from server (guaranteed version match) -->
     <script src="/socket.io/socket.io.js"></script>
+    
+    <!-- Verify Socket.io was loaded correctly and provide fallback if needed -->
+    <script>
+        // Check if Socket.io loaded successfully
+        window.addEventListener('DOMContentLoaded', function() {
+            console.log('Socket.io availability check:');
+            console.log('- Global io object:', typeof io !== 'undefined' ? 'Available ✓' : 'NOT AVAILABLE ✗');
+            
+            if (typeof io === 'undefined') {
+                console.error('Socket.io failed to load from server! Attempting to load from CDN...');
+                
+                // Create a fallback script with specific compatible version
+                var fallbackScript = document.createElement('script');
+                fallbackScript.setAttribute('crossorigin', 'anonymous');
+                fallbackScript.setAttribute('integrity', 'sha384-tQSaOeJnUbXS3b6nNGDbz55A0yz1h1Sd6PHAVmNy2BWvvtK57Mw/Ldt8KNXI/tLQ');
+                fallbackScript.src = 'https://cdn.socket.io/4.6.1/socket.io.min.js';
+                
+                fallbackScript.onload = function() {
+                    console.log('Socket.io loaded from CDN successfully');
+                    console.log('- Global io object (after fallback):', typeof io !== 'undefined' ? 'Available ✓' : 'STILL NOT AVAILABLE ✗');
+                    console.log('- Socket.io version:', io.version || 'unknown');
+                };
+                
+                fallbackScript.onerror = function() {
+                    console.error('Failed to load Socket.io from CDN');
+                    document.body.innerHTML = '<div style="padding: 20px; text-align: center; font-family: sans-serif;"><h1>Connection Error</h1><p>Failed to load Socket.io. Multiplayer features will not work.</p><button onclick="window.location.reload()">Refresh Page</button></div>';
+                };
+                
+                document.head.appendChild(fallbackScript);
+            } else {
+                console.log('- Socket.io version:', io.version || 'unknown');
+            }
+        });
+    </script>
     <style>
         body { 
             margin: 0; 
@@ -52,23 +86,24 @@
         }
         #health-bar {
             position: absolute;
-            top: 20px;
+            top: 30px;
             left: 20px;
             width: 200px;
-            height: 20px;
+            height: 15px;
             background-color: #333;
             border: 2px solid #666;
         }
         #health {
             width: 100%;
             height: 100%;
-            background-color: #f00;
+            background-color: #990000;
         }
         #game-state {
             position: absolute;
             top: 50px;
             left: 20px;
             color: white;
+            display: none; /* Hide the game state text */
         }
         #start-screen {
             position: absolute;
@@ -233,10 +268,44 @@
     <script src="/socket.io/socket.io.js"></script>
     <script src="multiplayer.js"></script>
     <script>
+    // Add a debug element to the page
+    const debugElement = document.createElement('div');
+    debugElement.id = 'debug-info';
+    debugElement.style.position = 'fixed';
+    debugElement.style.top = '10px';
+    debugElement.style.left = '10px';
+    debugElement.style.backgroundColor = 'rgba(0,0,0,0.7)';
+    debugElement.style.color = 'white';
+    debugElement.style.padding = '10px';
+    debugElement.style.zIndex = '1000';
+    debugElement.style.fontFamily = 'monospace';
+    debugElement.style.fontSize = '14px';
+    debugElement.innerHTML = 'Game loading...';
+    document.body.appendChild(debugElement);
+
+    // Add error handling
+    window.onerror = function(message, source, lineno, colno, error) {
+        console.error('Error:', message, 'at', source, lineno, colno);
+        debugElement.innerHTML += `<br>Error: ${message} at line ${lineno}`;
+        return false;
+    };
+    
     // Initialize the game once everything is loaded
     window.addEventListener('load', function() {
+        debugElement.innerHTML += '<br>Window loaded';
+        
         // Hide loading screen
-        document.getElementById('loading').style.display = 'none';
+        try {
+            const loadingElement = document.getElementById('loading');
+            if (loadingElement) {
+                loadingElement.style.display = 'none';
+                debugElement.innerHTML += '<br>Loading screen hidden';
+            } else {
+                debugElement.innerHTML += '<br>Loading element not found';
+            }
+        } catch (e) {
+            debugElement.innerHTML += `<br>Error hiding loading screen: ${e.message}`;
+        }
         
         // Game initialization code
         const game = new Game();
@@ -1695,6 +1764,32 @@
             this.updateWeaponInfoUI();
         }
         
+        /**
+         * Method specifically for switching to a named sword type
+         * Used mainly for remote players who need a specific sword
+         * @param {string} swordType - The type of sword to switch to
+         */
+        switchSword(swordType) {
+            if (!swordType) return;
+            
+            // Remove current sword if it exists
+            if (this.sword) {
+                this.mesh.remove(this.sword);
+            }
+            
+            // Create the new sword of the specified type
+            try {
+                this.createSword(swordType);
+                console.log(`Character switched to ${swordType}`);
+            } catch (error) {
+                console.error(`Failed to switch to sword: ${swordType}`, error);
+                // Fallback to first available sword if there's an error
+                if (this.availableSwords && this.availableSwords.length > 0) {
+                    this.createSword(this.availableSwords[0]);
+                }
+            }
+        }
+        
         // Method to update weapon info in the UI
         updateWeaponInfoUI() {
             const weaponInfo = document.getElementById('weapon-info');
@@ -1982,16 +2077,25 @@
             // Initialize multiplayer system
             this.multiplayer = new MultiplayerManager(this);
             
-            // Connect to multiplayer server if player name is provided
-            const playerName = document.getElementById('player-name').value;
-            if (playerName && playerName.trim() !== '') {
-                // Update connection status
-                document.getElementById('connection-status').textContent = 'Server Status: Connecting...';
-                
-                // Connect to server
-                this.multiplayer.connect(playerName, this.characterType, 
-                    this.playerCharacter ? this.playerCharacter.swordType : 'broadsword');
+            // Always attempt to connect to multiplayer server
+            // We'll use a default player name if one isn't provided
+            const playerNameInput = document.getElementById('player-name');
+            const playerName = playerNameInput && playerNameInput.value && playerNameInput.value.trim() !== '' ?
+                playerNameInput.value : `Player_${Math.floor(Math.random() * 10000)}`;
+            
+            // Update connection status display if it exists
+            const statusEl = document.getElementById('connection-status');
+            if (statusEl) {
+                statusEl.textContent = 'Server Status: Connecting...';
             }
+            
+            // Log connection attempt
+            console.log(`Attempting to connect to multiplayer server as: ${playerName}`);
+            
+            // Connect to server - this only establishes the connection but doesn't register the player yet
+            this.multiplayer.connect(playerName, this.characterType || 'knight', 'broadsword');
+            
+            // The actual player registration will happen after the character is created
             
             const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
             directionalLight.position.set(50, 50, 50);
@@ -2220,7 +2324,9 @@
             this.playerCharacter.isRemotePlayer = false; // Mark as local player
             
             // Store player's name
-            this.playerCharacter.name = document.getElementById('player-name').value;
+            const playerNameInput = document.getElementById('player-name');
+            this.playerCharacter.name = playerNameInput && playerNameInput.value ? 
+                playerNameInput.value : `Player_${Math.floor(Math.random() * 10000)}`;
             
             // Add character to the scene
             this.scene.add(this.playerCharacter.mesh);
@@ -2239,9 +2345,29 @@
                 this.players = {};
             }
             
-            // If multiplayer is enabled, initialize the connection
+            // CRITICAL: Register the player with the multiplayer system
             if (this.multiplayer) {
+                console.log('Registering player with multiplayer system');
+                
+                // First ensure the socket connection is initialized
                 this.multiplayer.initialize(this.playerCharacter);
+                
+                // Force register the player to ensure it's properly sent to the server
+                setTimeout(() => {
+                    if (this.multiplayer.socket && this.multiplayer.socket.connected) {
+                        console.log('Socket connected - registering player!');
+                        this.multiplayer.registerPlayer();
+                    } else {
+                        console.log('Socket not connected yet - waiting...');
+                        // Try one more time after a short delay
+                        setTimeout(() => {
+                            if (this.multiplayer.socket) {
+                                console.log('Final attempt to register player');
+                                this.multiplayer.registerPlayer();
+                            }
+                        }, 1000);
+                    }
+                }, 500);
             }
         }
         
@@ -2250,50 +2376,126 @@
          * @param {Object} playerData - Data about the remote player
          * @param {string} playerData.id - Socket ID of the remote player
          * @param {string} playerData.name - Name of the remote player
-         * @param {string} playerData.type - Character type of the remote player
+         * @param {string} playerData.characterType - Character type of the remote player
          * @param {string} playerData.swordType - Sword type of the remote player
          * @param {Object} playerData.position - Initial position of the remote player
          */
         createRemoteCharacter(playerData) {
-            // Create a new character for the remote player
-            const remoteCharacter = new Character(playerData.type, this);
-            remoteCharacter.isRemotePlayer = true;
-            remoteCharacter.id = playerData.id;
-            remoteCharacter.name = playerData.name;
+            console.log(`Creating remote character: ${JSON.stringify(playerData)}`);
             
-            // Set the remote player's sword type if specified
-            if (playerData.swordType) {
-                remoteCharacter.switchSword(playerData.swordType);
+            // Determine character type, defaulting to 'knight' if not specified
+            const characterType = playerData.characterType || playerData.type || 'knight';
+            
+            try {
+                // Create a new character for the remote player
+                const remoteCharacter = new Character(characterType, this);
+                remoteCharacter.isRemotePlayer = true;
+                remoteCharacter.id = playerData.id;
+                remoteCharacter.name = playerData.name || `Player_${playerData.id.substring(0, 5)}`;
+                
+                // Initialize properties required for multiplayer
+                // Make sure remote characters have availableSwords defined
+                if (!remoteCharacter.availableSwords || remoteCharacter.availableSwords.length === 0) {
+                    switch(characterType) {
+                        case 'knight':
+                            remoteCharacter.availableSwords = ['broadsword', 'greatsword'];
+                            break;
+                        case 'samurai':
+                            remoteCharacter.availableSwords = ['katana', 'dual_daggers'];
+                            break;
+                        case 'ninja':
+                            remoteCharacter.availableSwords = ['ninjato', 'rapier'];
+                            break;
+                        default:
+                            remoteCharacter.availableSwords = ['broadsword'];
+                    }
+                }
+                
+                // Add the remote character to the scene before setting sword
+                this.scene.add(remoteCharacter.mesh);
+                
+                // Make sure the character has the switchSword method
+                if (!remoteCharacter.switchSword) {
+                    console.log('Adding switchSword method to remote character');
+                    
+                    // Add the switchSword method to the remote character if it doesn't exist
+                    remoteCharacter.switchSword = function(swordType) {
+                        console.log(`Remote character switching to sword: ${swordType}`);
+                        
+                        // Remove existing sword if present
+                        if (this.sword) {
+                            this.mesh.remove(this.sword);
+                        }
+                        
+                        // Create new sword
+                        this.createSword(swordType);
+                        
+                        // Store current sword type for reference
+                        this.swordType = swordType;
+                        
+                        return this.sword;
+                    };
+                }
+                
+                // Set the remote player's sword type if specified
+                const swordType = playerData.swordType || remoteCharacter.availableSwords[0];
+                remoteCharacter.swordType = swordType; // Store the sword type
+                
+                try {
+                    // Use the switchSword method to set up the sword
+                    remoteCharacter.switchSword(swordType);
+                    console.log(`Remote character using sword: ${swordType}`);
+                } catch (error) {
+                    console.error(`Error while switching remote character sword: ${error.message}`);
+                    // Fallback to direct createSword method
+                    try {
+                        if (remoteCharacter.sword) {
+                            remoteCharacter.mesh.remove(remoteCharacter.sword);
+                        }
+                        const fallbackSword = remoteCharacter.availableSwords[0];
+                        remoteCharacter.createSword(fallbackSword);
+                        remoteCharacter.swordType = fallbackSword;
+                        console.log(`Falling back to sword: ${fallbackSword}`);
+                    } catch (e) {
+                        console.error(`Failed to create any sword for remote character: ${e.message}`);
+                    }
+                }
+                
+                // Position the remote character based on the data received
+                if (playerData.position) {
+                    // Create a proper Three.js Vector3 for position
+                    remoteCharacter.position = new THREE.Vector3(
+                        playerData.position.x,
+                        playerData.position.y,
+                        playerData.position.z
+                    );
+                    remoteCharacter.mesh.position.set(
+                        playerData.position.x,
+                        playerData.position.y,
+                        playerData.position.z
+                    );
+                } else {
+                    // Default starting position if none provided
+                    remoteCharacter.position = new THREE.Vector3(0, 0, 0);
+                    remoteCharacter.mesh.position.set(0, 0, 0);
+                }
+                
+                // Store the remote player in our players object
+                if (!this.players) {
+                    this.players = {};
+                }
+                this.players[playerData.id] = remoteCharacter;
+                
+                // Create floating name tag above player
+                this.createPlayerNameTag(remoteCharacter);
+                
+                console.log(`Remote player ${playerData.name} joined as ${characterType}`);
+                
+                return remoteCharacter;
+            } catch (error) {
+                console.error(`Failed to create remote character: ${error.message}`);
+                return null;
             }
-            
-            // Add the remote character to the scene
-            this.scene.add(remoteCharacter.mesh);
-            
-            // Position the remote character based on the data received
-            if (playerData.position) {
-                remoteCharacter.position = playerData.position;
-                remoteCharacter.mesh.position.set(
-                    playerData.position.x,
-                    playerData.position.y,
-                    playerData.position.z
-                );
-            } else {
-                // Default starting position if none provided
-                remoteCharacter.position = { x: 0, y: 0, z: 0 };
-            }
-            
-            // Store the remote player in our players object
-            if (!this.players) {
-                this.players = {};
-            }
-            this.players[playerData.id] = remoteCharacter;
-            
-            // Create floating name tag above player
-            this.createPlayerNameTag(remoteCharacter);
-            
-            console.log(`Remote player ${playerData.name} joined as ${playerData.type}`);
-            
-            return remoteCharacter;
         }
         
         /**
@@ -2301,7 +2503,12 @@
          * @param {Character} character - The character to add the name tag to
          */
         createPlayerNameTag(character) {
-            if (!character || !character.name || !character.mesh) return;
+            if (!character || !character.name || !character.mesh) {
+                console.warn('Cannot create name tag: Invalid character object');
+                return;
+            }
+            
+            console.log(`Creating name tag for ${character.name} (isRemote: ${character.isRemotePlayer})`);
             
             // Create a canvas to render the name tag
             const canvas = document.createElement('canvas');
@@ -2309,32 +2516,63 @@
             canvas.height = 64;
             const context = canvas.getContext('2d');
             
-            // Draw the name tag background
-            context.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            // Draw the name tag background with better visibility
+            context.fillStyle = 'rgba(0, 0, 0, 0.7)';
             context.fillRect(0, 0, canvas.width, canvas.height);
+            context.strokeStyle = character.isRemotePlayer ? 'red' : 'green';
+            context.lineWidth = 4;
+            context.strokeRect(0, 0, canvas.width, canvas.height);
             
-            // Draw the player name
-            context.font = '24px Arial';
-            context.fillStyle = character.isRemotePlayer ? 'red' : 'green';
+            // Draw the player name with larger, more visible font
+            context.font = 'bold 28px Arial';
+            context.fillStyle = character.isRemotePlayer ? '#FF9999' : '#99FF99';
             context.textAlign = 'center';
             context.textBaseline = 'middle';
             context.fillText(character.name, canvas.width / 2, canvas.height / 2);
             
             // Create texture from canvas
             const texture = new THREE.CanvasTexture(canvas);
-            const material = new THREE.SpriteMaterial({ map: texture });
+            texture.needsUpdate = true;
+            const material = new THREE.SpriteMaterial({ 
+                map: texture,
+                transparent: true,
+                depthTest: false, // Ensure it's always visible
+                depthWrite: false
+            });
             
             // Create sprite for the name tag
             const sprite = new THREE.Sprite(material);
-            sprite.scale.set(2, 0.5, 1);
+            sprite.scale.set(3, 0.8, 1); // Larger for better visibility
             sprite.position.y = 2.5; // Position above the character's head
             
-            // Add the name tag to the character mesh
+            // Add the name tag to both the character mesh and the scene
             character.mesh.add(sprite);
             character.nameTag = sprite;
             
+            console.log(`Name tag created successfully for ${character.name}`);
+            
+            // Ensure the name tag is positioned correctly in the scene
+            this.updateNameTagPosition(character);
+            
             // Update player count
             this.updatePlayerCount();
+        }
+        
+        /**
+         * Updates a character's name tag position
+         * @param {Character} character - The character whose name tag position to update
+         */
+        updateNameTagPosition(character) {
+            if (!character || !character.nameTag || !character.mesh) return;
+            
+            // Position name tag above the character's head
+            character.nameTag.position.copy(character.mesh.position);
+            character.nameTag.position.y += 2.5; // Position above head
+            
+            // Make name tag face the camera
+            if (this.camera) {
+                character.nameTag.lookAt(this.camera.position);
+            }
         }
         
         /**
@@ -2384,12 +2622,12 @@
                 .weapon-info {
                     bottom: 15px;
                     left: 15px;
-                    border-left: 4px solid #f44336;
+                    border-left: 4px solid #444444;
                 }
                 
                 .ui-title {
                     margin: 0 0 10px 0;
-                    color: #f44336;
+                    color: #ffffff;
                     font-size: 1.2em;
                     font-weight: bold;
                     text-transform: uppercase;
@@ -2797,6 +3035,11 @@
                 // Update player character
                 this.playerCharacter.update(delta);
                 
+                // Update multiplayer component
+                if (this.multiplayer) {
+                    this.multiplayer.update();
+                }
+                
                 // Update camera based on view mode
                 if (this.isFirstPerson) {
                     // First-person view with mouse look
@@ -2985,7 +3228,6 @@
         }
     }
     </script>
-    <!-- Load multiplayer integration -->
-    <script src="multiplayer.js"></script>
+    <!-- multiplayer.js is already included at the top of the file -->
 </body>
 </html>

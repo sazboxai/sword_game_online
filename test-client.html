@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sword Game - Test Client</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f0f0f0;
+        }
+        h1 {
+            color: #333;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px 0;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .player {
+            background-color: #f5f5f5;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 4px solid #4CAF50;
+        }
+        #status {
+            color: #333;
+            padding: 10px;
+            margin: 10px 0;
+            background-color: #e9e9e9;
+            border-radius: 4px;
+        }
+        pre {
+            background-color: #f8f8f8;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        .inputs {
+            margin-bottom: 15px;
+        }
+        .inputs input, .inputs select {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Sword Game - Test Client</h1>
+        <div id="status">Waiting for connection...</div>
+        
+        <div class="inputs">
+            <input type="text" id="playerName" placeholder="Player Name" value="TestPlayer">
+            <select id="characterType">
+                <option value="knight">Knight</option>
+                <option value="samurai">Samurai</option>
+                <option value="ninja">Ninja</option>
+            </select>
+            <select id="swordType">
+                <option value="broadsword">Broadsword</option>
+                <option value="katana">Katana</option>
+                <option value="ninjato">Ninjato</option>
+                <option value="greatsword">Greatsword</option>
+                <option value="rapier">Rapier</option>
+                <option value="dualdaggers">Dual Daggers</option>
+            </select>
+        </div>
+        
+        <button id="connectBtn">Connect to Server</button>
+        <button id="registerBtn" disabled>Register Player</button>
+        <button id="moveBtn" disabled>Send Random Position Update</button>
+        <button id="disconnectBtn" disabled>Disconnect</button>
+        
+        <h2>Connection Log</h2>
+        <pre id="log"></pre>
+        
+        <h2>Other Players</h2>
+        <div id="playersList"></div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        // DOM elements
+        const statusEl = document.getElementById('status');
+        const logEl = document.getElementById('log');
+        const playersListEl = document.getElementById('playersList');
+        const connectBtn = document.getElementById('connectBtn');
+        const registerBtn = document.getElementById('registerBtn');
+        const moveBtn = document.getElementById('moveBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const playerNameInput = document.getElementById('playerName');
+        const characterTypeSelect = document.getElementById('characterType');
+        const swordTypeSelect = document.getElementById('swordType');
+        
+        // State
+        let socket = null;
+        let myPlayerId = null;
+        const otherPlayers = {};
+        
+        // Logging helper
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            logEl.innerHTML = `[${timestamp}] ${message}\n` + logEl.innerHTML;
+            console.log(message);
+        }
+        
+        // Update status display
+        function updateStatus(message) {
+            statusEl.textContent = message;
+        }
+        
+        // Update players list
+        function updatePlayersList() {
+            playersListEl.innerHTML = '';
+            Object.keys(otherPlayers).forEach(id => {
+                const player = otherPlayers[id];
+                const playerEl = document.createElement('div');
+                playerEl.className = 'player';
+                playerEl.innerHTML = `
+                    <strong>${player.name}</strong> (${id})<br>
+                    Character: ${player.characterType}<br>
+                    Sword: ${player.swordType}<br>
+                    Position: ${JSON.stringify(player.position)}
+                `;
+                playersListEl.appendChild(playerEl);
+            });
+            
+            if (Object.keys(otherPlayers).length === 0) {
+                playersListEl.innerHTML = '<p>No other players connected</p>';
+            }
+        }
+        
+        // Connect to server
+        connectBtn.addEventListener('click', () => {
+            if (socket) {
+                log('Already connected!');
+                return;
+            }
+            
+            try {
+                // Connect to the Socket.io server
+                log('Attempting to connect to server...');
+                socket = io('http://localhost:8989');
+                
+                // Connection events
+                socket.on('connect', () => {
+                    myPlayerId = socket.id;
+                    log(`Connected to server! Socket ID: ${myPlayerId}`);
+                    updateStatus(`Connected as ${myPlayerId}`);
+                    
+                    // Enable/disable buttons
+                    connectBtn.disabled = true;
+                    registerBtn.disabled = false;
+                    disconnectBtn.disabled = false;
+                    
+                    // Send test message
+                    socket.emit('test', { 
+                        message: 'Test client connected!',
+                        clientInfo: {
+                            type: 'test-client',
+                            timestamp: Date.now()
+                        }
+                    });
+                });
+                
+                socket.on('connect_error', (err) => {
+                    log(`Connection error: ${err.message}`);
+                    updateStatus(`Connection error: ${err.message}`);
+                });
+                
+                socket.on('disconnect', () => {
+                    log('Disconnected from server');
+                    updateStatus('Disconnected');
+                    
+                    // Reset buttons
+                    connectBtn.disabled = false;
+                    registerBtn.disabled = true;
+                    moveBtn.disabled = true;
+                    disconnectBtn.disabled = true;
+                    
+                    // Reset state
+                    socket = null;
+                    myPlayerId = null;
+                    Object.keys(otherPlayers).forEach(id => delete otherPlayers[id]);
+                    updatePlayersList();
+                });
+                
+                // Test response from server
+                socket.on('testResponse', (data) => {
+                    log(`Test response received: ${data.message}`);
+                    log(`Server info: ${data.clientsConnected} client(s), ${data.playersRegistered} player(s)`);
+                });
+                
+                // Debug messages
+                socket.on('debug', (data) => {
+                    log(`Debug from server: ${data.message}`);
+                });
+                
+                socket.on('debugMessage', (data) => {
+                    log(`Debug message: ${data.message}`);
+                    if (data.players && data.players.length > 0) {
+                        log(`Other players: ${data.players.join(', ')}`);
+                    }
+                });
+                
+                // Player events
+                socket.on('playerJoined', (player) => {
+                    log(`Player joined: ${player.name} (${player.id})`);
+                    otherPlayers[player.id] = player;
+                    updatePlayersList();
+                });
+                
+                socket.on('playerLeft', (data) => {
+                    log(`Player left: ${data.id}`);
+                    if (otherPlayers[data.id]) {
+                        delete otherPlayers[data.id];
+                        updatePlayersList();
+                    }
+                });
+                
+                socket.on('playerUpdated', (player) => {
+                    if (otherPlayers[player.id]) {
+                        Object.assign(otherPlayers[player.id], player);
+                        updatePlayersList();
+                    }
+                });
+                
+                socket.on('existingPlayers', (players) => {
+                    log(`Received ${Object.keys(players).length} existing players`);
+                    Object.keys(players).forEach(id => {
+                        otherPlayers[id] = players[id];
+                    });
+                    updatePlayersList();
+                });
+            } catch (err) {
+                log(`Error creating connection: ${err.message}`);
+                updateStatus(`Error: ${err.message}`);
+            }
+        });
+        
+        // Register player
+        registerBtn.addEventListener('click', () => {
+            if (!socket) {
+                log('Not connected!');
+                return;
+            }
+            
+            const playerData = {
+                name: playerNameInput.value || `TestPlayer_${Date.now().toString(36).substring(4)}`,
+                characterType: characterTypeSelect.value,
+                swordType: swordTypeSelect.value,
+                position: { x: 0, y: 0, z: 0 }
+            };
+            
+            log(`Registering player: ${playerData.name} (${playerData.characterType} with ${playerData.swordType})`);
+            socket.emit('playerJoin', playerData);
+            updateStatus(`Registered as ${playerData.name}`);
+            
+            // Enable movement button
+            moveBtn.disabled = false;
+        });
+        
+        // Send position update
+        moveBtn.addEventListener('click', () => {
+            if (!socket) {
+                log('Not connected!');
+                return;
+            }
+            
+            // Generate random position
+            const position = {
+                x: Math.floor(Math.random() * 20) - 10,
+                y: 0,
+                z: Math.floor(Math.random() * 20) - 10
+            };
+            
+            log(`Sending position update: ${JSON.stringify(position)}`);
+            socket.emit('playerUpdate', { position });
+        });
+        
+        // Disconnect from server
+        disconnectBtn.addEventListener('click', () => {
+            if (!socket) {
+                log('Not connected!');
+                return;
+            }
+            
+            log('Disconnecting from server...');
+            socket.disconnect();
+        });
+        
+        // Initial update
+        updateStatus('Ready to connect');
+        updatePlayersList();
+    </script>
+</body>
+</html>
