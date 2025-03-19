@@ -194,6 +194,20 @@
             font-size: 16px;
         }
         
+        /* Style for locked input fields */
+        .input-container input.locked-input {
+            border: 2px solid #3a7e3a;
+            background: rgba(20, 40, 20, 0.5);
+            color: #9aff9a;
+            cursor: not-allowed;
+        }
+        
+        /* Add a small lock icon indicator using ::after pseudo-element */
+        .input-container input.locked-input:focus {
+            outline: none;
+            box-shadow: 0 0 5px #3a7e3a;
+        }
+        
         #multiplayer-status {
             margin: 10px auto;
             padding: 10px;
@@ -2012,6 +2026,9 @@
             this.pitch = 0;
             this.verticalAngleLimit = Math.PI / 3;
             
+            // Store the player's name consistently throughout the game
+            this.playerName = '';
+            
             this.controls = {
                 forward: false,
                 backward: false,
@@ -2078,10 +2095,23 @@
             this.multiplayer = new MultiplayerManager(this);
             
             // Always attempt to connect to multiplayer server
-            // We'll use a default player name if one isn't provided
+            // Get the player name from the input field
             const playerNameInput = document.getElementById('player-name');
-            const playerName = playerNameInput && playerNameInput.value && playerNameInput.value.trim() !== '' ?
-                playerNameInput.value : `Player_${Math.floor(Math.random() * 10000)}`;
+            let playerName = '';
+            
+            // Ensure we have a valid player name
+            if (playerNameInput && playerNameInput.value && playerNameInput.value.trim() !== '') {
+                playerName = playerNameInput.value.trim();
+            } else {
+                playerName = `Player_${Math.floor(Math.random() * 10000)}`;
+            }
+            
+            // Make sure player name is always set in the input field for consistency
+            if (playerNameInput) {
+                playerNameInput.value = playerName;
+            }
+            
+            console.log(`Using player name: '${playerName}'`);
             
             // Update connection status display if it exists
             const statusEl = document.getElementById('connection-status');
@@ -2274,11 +2304,21 @@
         
         startGame() {
             // Validate player name
-            const playerName = document.getElementById('player-name').value;
+            const playerNameInput = document.getElementById('player-name');
+            const playerName = playerNameInput.value;
+            
             if (!playerName || playerName.trim() === '') {
                 alert('Please enter your player name');
                 return;
             }
+            
+            // Lock the player name to prevent edits after game start
+            playerNameInput.readOnly = true;
+            playerNameInput.classList.add('locked-input');
+            
+            // Store the player name in the Game class for consistency
+            this.playerName = playerName.trim();
+            console.log(`Player name '${this.playerName}' locked for this session`);
             
             if (!this.characterType) {
                 alert('Please select a character');
@@ -2323,10 +2363,29 @@
             this.playerCharacter = new Character(this.characterType, this);
             this.playerCharacter.isRemotePlayer = false; // Mark as local player
             
-            // Store player's name
-            const playerNameInput = document.getElementById('player-name');
-            this.playerCharacter.name = playerNameInput && playerNameInput.value ? 
-                playerNameInput.value : `Player_${Math.floor(Math.random() * 10000)}`;
+            // Use the player name stored in the Game class for consistency
+            if (this.playerName && this.playerName.trim() !== '') {
+                this.playerCharacter.name = this.playerName;
+            } else {
+                // Fallback to input field as a backup
+                const playerNameInput = document.getElementById('player-name');
+                if (playerNameInput && playerNameInput.value && playerNameInput.value.trim() !== '') {
+                    this.playerCharacter.name = playerNameInput.value.trim();
+                    // Also update the game's stored player name
+                    this.playerName = this.playerCharacter.name;
+                } else {
+                    // Last resort fallback to generated name
+                    this.playerCharacter.name = `Player_${Math.floor(Math.random() * 10000)}`;
+                    // Store this generated name
+                    this.playerName = this.playerCharacter.name;
+                    // Update the input field for consistency
+                    if (playerNameInput) {
+                        playerNameInput.value = this.playerCharacter.name;
+                    }
+                }
+            }
+            
+            console.log(`Setting player character name to: '${this.playerCharacter.name}'`);
             
             // Add character to the scene
             this.scene.add(this.playerCharacter.mesh);
@@ -2391,7 +2450,15 @@
                 const remoteCharacter = new Character(characterType, this);
                 remoteCharacter.isRemotePlayer = true;
                 remoteCharacter.id = playerData.id;
-                remoteCharacter.name = playerData.name || `Player_${playerData.id.substring(0, 5)}`;
+                
+                // Use the player's actual entered name if available, with fallbacks
+                if (playerData.name && playerData.name.trim() !== '') {
+                    remoteCharacter.name = playerData.name;
+                } else {
+                    remoteCharacter.name = `Player_${playerData.id.substring(0, 5)}`;
+                }
+                
+                console.log(`Remote player name set to: ${remoteCharacter.name}`);
                 
                 // Initialize properties required for multiplayer
                 // Make sure remote characters have availableSwords defined
@@ -2510,24 +2577,39 @@
             
             console.log(`Creating name tag for ${character.name} (isRemote: ${character.isRemotePlayer})`);
             
+            // If a previous name tag exists, remove it
+            if (character.nameTag) {
+                character.mesh.remove(character.nameTag);
+            }
+            
             // Create a canvas to render the name tag
             const canvas = document.createElement('canvas');
-            canvas.width = 256;
-            canvas.height = 64;
+            canvas.width = 512; // Increased for better resolution
+            canvas.height = 128; // Increased for better resolution
             const context = canvas.getContext('2d');
             
             // Draw the name tag background with better visibility
-            context.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            context.fillStyle = 'rgba(0, 0, 0, 0.8)';
             context.fillRect(0, 0, canvas.width, canvas.height);
-            context.strokeStyle = character.isRemotePlayer ? 'red' : 'green';
-            context.lineWidth = 4;
-            context.strokeRect(0, 0, canvas.width, canvas.height);
+            
+            // Add a border around the name tag for better visibility
+            const borderColor = character.isRemotePlayer ? '#FF3333' : '#33FF33';
+            context.strokeStyle = borderColor;
+            context.lineWidth = 8;
+            context.strokeRect(4, 4, canvas.width - 8, canvas.height - 8);
             
             // Draw the player name with larger, more visible font
-            context.font = 'bold 28px Arial';
-            context.fillStyle = character.isRemotePlayer ? '#FF9999' : '#99FF99';
+            context.font = 'bold 48px Arial';
+            context.fillStyle = character.isRemotePlayer ? '#FFCCCC' : '#CCFFCC';
             context.textAlign = 'center';
             context.textBaseline = 'middle';
+            context.fillText(character.name, canvas.width / 2, canvas.height / 2);
+            
+            // Add a glow effect for better visibility
+            context.shadowColor = borderColor;
+            context.shadowBlur = 15;
+            context.shadowOffsetX = 0;
+            context.shadowOffsetY = 0;
             context.fillText(character.name, canvas.width / 2, canvas.height / 2);
             
             // Create texture from canvas
@@ -2536,16 +2618,23 @@
             const material = new THREE.SpriteMaterial({ 
                 map: texture,
                 transparent: true,
-                depthTest: false, // Ensure it's always visible
-                depthWrite: false
+                depthTest: false, // Ensure it's always visible regardless of depth
+                depthWrite: false,
+                sizeAttenuation: true // Scale with distance
             });
             
             // Create sprite for the name tag
             const sprite = new THREE.Sprite(material);
-            sprite.scale.set(3, 0.8, 1); // Larger for better visibility
-            sprite.position.y = 2.5; // Position above the character's head
+            sprite.scale.set(3.5, 1, 1); // Wider for better visibility
+            sprite.position.y = 3.0; // Position higher above the character's head
             
-            // Add the name tag to both the character mesh and the scene
+            // Set renderOrder to ensure the name tag is drawn on top of other objects
+            sprite.renderOrder = 9999;
+            
+            // Store the current name for change detection
+            sprite.userData = { lastDisplayedName: character.name };
+            
+            // Add the name tag to the character mesh so it moves with the character
             character.mesh.add(sprite);
             character.nameTag = sprite;
             
@@ -2553,6 +2642,12 @@
             
             // Ensure the name tag is positioned correctly in the scene
             this.updateNameTagPosition(character);
+            
+            // Add to a dedicated name tags group for easier management
+            if (!this.nameTags) {
+                this.nameTags = new THREE.Group();
+                this.scene.add(this.nameTags);
+            }
             
             // Update player count
             this.updatePlayerCount();
@@ -2565,13 +2660,59 @@
         updateNameTagPosition(character) {
             if (!character || !character.nameTag || !character.mesh) return;
             
-            // Position name tag above the character's head
-            character.nameTag.position.copy(character.mesh.position);
-            character.nameTag.position.y += 2.5; // Position above head
+            try {
+                // The name tag should already be a child of the character mesh,
+                // so we don't need to copy the mesh position as it inherits it
+                
+                // Make sure name tag is at the correct height above the character's head
+                // No need to copy the position since it's already a child of the mesh
+                character.nameTag.position.set(0, 3.0, 0); // Position relative to the character mesh
+                
+                // Make name tag always face the camera directly
+                if (this.camera) {
+                    // Get the world position of the camera
+                    const worldPos = new THREE.Vector3();
+                    this.camera.getWorldPosition(worldPos);
+                    
+                    // Create a world matrix for the name tag
+                    const nameTagWorldPos = new THREE.Vector3();
+                    character.nameTag.getWorldPosition(nameTagWorldPos);
+                    
+                    // Calculate the direction to the camera
+                    const direction = new THREE.Vector3();
+                    direction.subVectors(worldPos, nameTagWorldPos).normalize();
+                    
+                    // Make the name tag face the camera
+                    character.nameTag.lookAt(worldPos);
+                }
+                
+                // Update the texture if the name has changed
+                if (character.nameTag.userData.lastDisplayedName !== character.name) {
+                    // Recreate the name tag with the updated name
+                    this.createPlayerNameTag(character);
+                }
+            } catch (error) {
+                console.error(`Error updating name tag position: ${error.message}`);
+            }
+        }
+        
+        /**
+         * Updates all character name tags in the scene
+         */
+        updateAllNameTags() {
+            // Update the player character's name tag if it exists
+            if (this.playerCharacter && this.playerCharacter.nameTag) {
+                this.updateNameTagPosition(this.playerCharacter);
+            }
             
-            // Make name tag face the camera
-            if (this.camera) {
-                character.nameTag.lookAt(this.camera.position);
+            // Update all remote player name tags
+            if (this.multiplayer && this.multiplayer.remotePlayers) {
+                for (const id in this.multiplayer.remotePlayers) {
+                    const remotePlayer = this.multiplayer.remotePlayers[id];
+                    if (remotePlayer && remotePlayer.nameTag) {
+                        this.updateNameTagPosition(remotePlayer);
+                    }
+                }
             }
         }
         
@@ -3034,6 +3175,9 @@
             if (this.playerCharacter) {
                 // Update player character
                 this.playerCharacter.update(delta);
+                
+                // Update all name tags to ensure they stay visible
+                this.updateAllNameTags();
                 
                 // Update multiplayer component
                 if (this.multiplayer) {

@@ -60,9 +60,11 @@ class MultiplayerManager {
         this.updateConnectionStatus('connecting', 'Connecting to server...');
         
         // Store player info for registration
-        this.playerName = playerName || 'Player';
+        this.playerName = playerName && playerName.trim() !== '' ? playerName.trim() : `Player_${Date.now().toString(36).substring(4)}`;
         this.characterType = characterType || 'knight';
         this.swordType = swordType || 'broadsword';
+        
+        console.log(`Player name set to: '${this.playerName}' (original input: '${playerName}')`);
         
         try {
             // Check if Socket.io is available
@@ -467,12 +469,18 @@ class MultiplayerManager {
         }
         
         const playerData = {
-            name: this.playerName || `Player_${this.socket.id.substring(0, 5)}`,
+            name: this.playerName, // Use the name set during connect
             characterType: characterType,
             swordType: swordType,
             position: position,
             timestamp: Date.now() // Add timestamp for debugging
         };
+        
+        // Double-check that we have a valid name
+        if (!playerData.name || playerData.name.trim() === '') {
+            console.error('WARNING: Player name is empty or invalid, using fallback name');
+            playerData.name = `Player_${this.socket.id.substring(0, 5)}`;
+        }
         
         this.log(`Registering player with server: ${playerData.name} (${this.socket.id})`);
         console.log(`REGISTERING PLAYER WITH SERVER: ${JSON.stringify(playerData)}`);

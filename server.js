@@ -229,11 +229,21 @@ io.on('connection', (socket) => {
         console.log(`Sword Type: ${playerData.swordType}`);
         console.log(`Initial Position:`, playerData.position);
         
+        // Validate and sanitize player name
+        let playerName = playerData.name;
+        if (!playerName || playerName.trim() === '') {
+            playerName = `Player_${socket.id.substring(0, 5)}`;
+            console.log(`Using default name for player ${socket.id} because name was empty or invalid`);
+        } else {
+            playerName = playerName.trim();
+            console.log(`Using provided name '${playerName}' for player ${socket.id}`);
+        }
+        
         // Update existing player data
         players[socket.id] = {
             ...players[socket.id],
             id: socket.id,
-            name: playerData.name || `Player_${socket.id.substring(0, 5)}`,
+            name: playerName,
             characterType: playerData.characterType || 'knight',
             swordType: playerData.swordType || 'broadsword',
             fullyRegistered: true,
