@@ -2445,17 +2445,22 @@
                 // First ensure the socket connection is initialized
                 this.multiplayer.initialize(this.playerCharacter);
                 
+                // Update the character type in the multiplayer manager to match our selected character
+                this.multiplayer.characterType = this.characterType;
+                
                 // Force register the player to ensure it's properly sent to the server
                 setTimeout(() => {
                     if (this.multiplayer.socket && this.multiplayer.socket.connected) {
-                        console.log('Socket connected - registering player!');
+                        console.log(`Socket connected - registering player with character type: ${this.characterType}!`);
                         this.multiplayer.registerPlayer();
                     } else {
                         console.log('Socket not connected yet - waiting...');
                         // Try one more time after a short delay
                         setTimeout(() => {
                             if (this.multiplayer.socket) {
-                                console.log('Final attempt to register player');
+                                // Make sure character type is still correct
+                                this.multiplayer.characterType = this.characterType;
+                                console.log(`Final attempt to register player with character type: ${this.characterType}`);
                                 this.multiplayer.registerPlayer();
                             }
                         }, 1000);

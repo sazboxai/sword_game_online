@@ -341,9 +341,16 @@ class MultiplayerManager {
         // Store reference to player character
         this.playerCharacter = playerCharacter;
         
+        // Update character type and sword type from player character
+        if (playerCharacter) {
+            this.characterType = playerCharacter.type;
+            this.swordType = playerCharacter.swordType;
+            this.log(`Updated character type to ${this.characterType} and sword type to ${this.swordType}`);
+        }
+        
         // Connect to the server if we haven't already
         if (!this.connected && this.playerName) {
-            this.connect(this.playerName, playerCharacter.type, playerCharacter.swordType);
+            this.connect(this.playerName, this.characterType, this.swordType);
         }
     }
     
@@ -464,7 +471,19 @@ class MultiplayerManager {
         
         // Connection acknowledgment - received right after connection
         this.socket.on('connect_ack', (data) => {
-            this.logReconnection(`Connection acknowledged by server`, data);
+            this.playerId = data.socketId;
+            this.log(`Server acknowledged connection: ${this.playerId}`);
+            this.log(`Connected clients: ${data.connectedClients}`);
+            this.log(`Players registered: ${data.playersRegistered}`);
+            
+            // Start sending regular updates as soon as we're connected and registered
+            if (this.playerName) {
+                setTimeout(() => {
+                    // Force an immediate position update to ensure our name is propagated
+                    this.log(`Sending forced initial player update to ensure name propagation`);
+                    this.updatePosition();
+                }, 500);
+            }
             
             // Store server time offset for potential time synchronization
             const clientTime = Date.now();
@@ -1236,6 +1255,24 @@ class MultiplayerManager {
         const position = character.mesh.position;
         const rotation = character.mesh.rotation.y;
         
+        // Make sure our character type is updated - in case it changed
+        if (character.type && this.characterType !== character.type) {
+            this.characterType = character.type;
+            this.log(`Character type updated to ${this.characterType}`);
+        }
+        
+        // Make sure our sword type is updated - in case it changed
+        if (character.swordType && this.swordType !== character.swordType) {
+            this.swordType = character.swordType;
+            this.log(`Sword type updated to ${this.swordType}`);
+        }
+        
+        // Make sure our player name is updated - in case it changed
+        if (this.game.playerName && this.playerName !== this.game.playerName) {
+            this.playerName = this.game.playerName;
+            this.log(`Player name updated to ${this.playerName}`);
+        }
+        
         // Calculate movement delta
         let delta = 0;
         if (this.lastPosition) {
@@ -1296,6 +1333,8 @@ class MultiplayerManager {
                 z: position.z
             },
             rotation: rotation,
+            characterType: this.characterType, // Include character type in every update
+            swordType: this.swordType, // Include sword type in every update
             timestamp: now,
             updateId: updateId, // Help track updates in logs
             debug: {
@@ -1323,54 +1362,57 @@ class MultiplayerManager {
     addRemotePlayer(playerData) {
         try {
             if (!playerData || !playerData.id) {
-                this.logReconnection(`Cannot add remote player - invalid player data`, { 
-                    dataExists: !!playerData 
-                });
+                this.log('Cannot add remote player: invalid player data');
                 return null;
             }
             
-            const playerId = playerData.id;
-            
-            // First check if we already have this player - if so, update instead of adding
-            if (this.remotePlayers[playerId]) {
-                this.logReconnection(`Player ${playerData.name} (${playerId}) already exists, updating instead of adding`);
-                return this.updateRemotePlayer(playerData);
+            // Check if this player already exists
+            if (this.remotePlayers[playerData.id]) {
+                // Player already exists, just update their data
+                const existingPlayer = this.remotePlayers[playerData.id];
+                
+                // Log if their name has changed
+                if (playerData.name && existingPlayer.name !== playerData.name) {
+                    this.log(`Remote player ${playerData.id} name changed from "${existingPlayer.name}" to "${playerData.name}"`);
+                    existingPlayer.name = playerData.name;
+                    
+                    // Update the name tag if the mesh exists
+                    if (this.game && this.game.scene) {
+                        let playerMesh = null;
+                        this.game.scene.traverse(obj => {
+                            if (obj.name === `player_${playerData.id}`) {
+                                playerMesh = obj;
+                            }
+                        });
+                        if (playerMesh) {
+                            this.createNameTag(playerData.id, existingPlayer);
+                        }
+                    }
+                }
+                
+                return existingPlayer;
             }
             
-            // Create a player object with source information for ghost detection
-            this.remotePlayers[playerId] = {
-                id: playerId,
-                name: playerData.name || `Player_${playerId.substring(0, 4)}`,
+            // Create a new player object with all required properties
+            const player = {
+                id: playerData.id,
+                name: playerData.name || `Player_${playerData.id.substring(0, 5)}`,
                 characterType: playerData.characterType || 'knight',
                 swordType: playerData.swordType || 'broadsword',
-                health: playerData.health || 100,
-                position: { 
-                    x: playerData.position?.x || 0, 
-                    y: playerData.position?.y || 0, 
-                    z: playerData.position?.z || 0 
-                },
+                health: typeof playerData.health === 'number' ? playerData.health : 100,
+                position: playerData.position || { x: 0, y: 0, z: 0 },
                 rotation: playerData.rotation || 0,
-                isAttacking: false,
-                isBlocking: false,
-                _lastUpdateTime: Date.now(),
-                _added: Date.now(),
-                _sourceInfo: {
-                    socketID: playerId,
-                    sessionId: playerData.sessionId || null,
-                    clientSessionId: playerData.clientSessionId || null,
-                    isPotentialGhost: !playerData.sessionId // Players without session IDs might be ghosts
-                },
-                _debug: {
-                    receivedFrom: this.socket?.id || 'unknown',
-                    addedAt: new Date().toISOString()
-                }
+                isAttacking: !!playerData.isAttacking,
+                isBlocking: !!playerData.isBlocking,
+                lastUpdateTime: Date.now(),
+                _lastUpdateTime: Date.now()
             };
             
-            this.logReconnection(`Remote player added to internal data structure`, {
-                id: playerId,
-                name: this.remotePlayers[playerId].name,
-                meshCreated: false
-            });
+            // Add detailed logging when adding a remote player
+            this.log(`Adding remote player: ${player.name} (${player.id}) - Character: ${player.characterType}, Position: ${JSON.stringify(player.position)}`);
+            
+            // Add to remote players dictionary
+            this.remotePlayers[playerData.id] = player;
             
             // Create visual representation if game is initialized and we have a scene
             if (!this.game || !this.game.scene) {
@@ -1400,7 +1442,7 @@ class MultiplayerManager {
                         // Check if player mesh exists using Three.js methods
                         let meshExists = false;
                         this.game.scene.traverse(obj => {
-                            if (obj.name === `player_${playerId}`) {
+                            if (obj.name === `player_${playerData.id}`) {
                                 meshExists = true;
                             }
                         });
@@ -1408,33 +1450,33 @@ class MultiplayerManager {
                         if (!meshExists) {
                             // Game is now available but player mesh doesn't exist yet
                             this.logReconnection(`Game now available - creating delayed mesh for player ${playerData.name}`);
-                            this.createRemotePlayerMesh(playerId, this.remotePlayers[playerId]);
-                            this.createNameTag(playerId, this.remotePlayers[playerId]);
+                            this.createRemotePlayerMesh(playerData.id, this.remotePlayers[playerData.id]);
+                            this.createNameTag(playerData.id, this.remotePlayers[playerData.id]);
                         }
                     }
                 }, 1000);
                 
-                return this.remotePlayers[playerId]; // Return player data even without visuals
+                return this.remotePlayers[playerData.id]; // Return player data even without visuals
             }
             
             // Create a mesh for this player
-            const playerMesh = this.createRemotePlayerMesh(playerId, this.remotePlayers[playerId]);
+            const playerMesh = this.createRemotePlayerMesh(playerData.id, this.remotePlayers[playerData.id]);
             if (!playerMesh) {
-                this.logReconnection(`WARNING: Failed to create mesh for player ${playerId}`);
-                return this.remotePlayers[playerId]; // Return player data even without visuals
+                this.logReconnection(`WARNING: Failed to create mesh for player ${playerData.id}`);
+                return this.remotePlayers[playerData.id]; // Return player data even without visuals
             }
             
             // Create a name tag for this player
-            this.createNameTag(playerId, this.remotePlayers[playerId]);
+            this.createNameTag(playerData.id, this.remotePlayers[playerData.id]);
             
             // Update player count
             this.updatePlayerCount();
             
             this.logReconnection(`Successfully added remote player`, {
-                id: playerId,
-                name: this.remotePlayers[playerId].name,
+                id: playerData.id,
+                name: this.remotePlayers[playerData.id].name,
                 meshCreated: !!playerMesh,
-                position: this.remotePlayers[playerId].position
+                position: this.remotePlayers[playerData.id].position
             });
             
             // Perform visibility check after short delay to ensure rendering
@@ -1445,16 +1487,16 @@ class MultiplayerManager {
                 
                 if (this.game && this.game.scene) {
                     this.game.scene.traverse(obj => {
-                        if (obj.name === `player_${playerId}`) {
+                        if (obj.name === `player_${playerData.id}`) {
                             mesh = obj;
-                        } else if (obj.name === `nameTag_${playerId}`) {
+                        } else if (obj.name === `nameTag_${playerData.id}`) {
                             nameTag = obj;
                         }
                     });
                 }
                 
                 this.logReconnection(`Player visibility check`, {
-                    id: playerId,
+                    id: playerData.id,
                     meshVisible: mesh ? mesh.visible : false,
                     nameTagVisible: nameTag ? nameTag.visible : false,
                     meshPosition: mesh ? {
@@ -1467,17 +1509,17 @@ class MultiplayerManager {
                 // If mesh exists but isn't visible, try to make it visible
                 if (mesh && !mesh.visible) {
                     mesh.visible = true;
-                    this.logReconnection(`Forced visibility for player mesh`, { id: playerId });
+                    this.logReconnection(`Forced visibility for player mesh`, { id: playerData.id });
                 }
                 
                 if (nameTag && !nameTag.visible) {
                     nameTag.visible = true;
-                    this.logReconnection(`Forced visibility for player name tag`, { id: playerId });
+                    this.logReconnection(`Forced visibility for player name tag`, { id: playerData.id });
                 }
                 
                 // Make sure player position is updated
-                if (mesh && this.remotePlayers[playerId]) {
-                    const position = this.remotePlayers[playerId].position;
+                if (mesh && this.remotePlayers[playerData.id]) {
+                    const position = this.remotePlayers[playerData.id].position;
                     mesh.position.set(
                         position.x || 0,
                         position.y || 0,
@@ -1486,7 +1528,13 @@ class MultiplayerManager {
                 }
             }, 500);
             
-            return this.remotePlayers[playerId];
+            this.logReconnection(`Added remote player ${playerData.name} (${playerData.id})`, {
+                characterType: this.remotePlayers[playerData.id].characterType,
+                position: this.remotePlayers[playerData.id].position,
+                socketId: playerData.id
+            });
+            
+            return this.remotePlayers[playerData.id];
             
         } catch (error) {
             this.logReconnection(`Error adding remote player`, { 
@@ -1598,20 +1646,22 @@ class MultiplayerManager {
                 return existingMesh;
             }
             
-            // Create a simple box mesh to represent the player using THREE.js
-            const geometry = new THREE.BoxGeometry(1, 2, 1);
+            // Create a minecraft-like character with body and limbs
+            // Group to hold all character parts
+            const characterGroup = new THREE.Group();
+            characterGroup.name = `player_${playerId}`;
             
-            // Use different colors for different character types
+            // Determine character color based on type
             let color;
             switch (characterType) {
                 case 'knight':
-                    color = new THREE.Color(0x7777bb); // Blue-gray
+                    color = new THREE.Color(0x0055FF); // Bright blue for knight
                     break;
                 case 'ninja':
-                    color = new THREE.Color(0x333333); // Dark gray
+                    color = new THREE.Color(0x000000); // Pure black for ninja
                     break;
                 case 'samurai':
-                    color = new THREE.Color(0xbb3333); // Red
+                    color = new THREE.Color(0xFF0000); // Bright red for samurai
                     break;
                 default:
                     color = new THREE.Color(0x777777); // Gray
@@ -1620,31 +1670,75 @@ class MultiplayerManager {
             // Create a material for the player
             const material = new THREE.MeshStandardMaterial({
                 color: color,
-                roughness: 0.7,
-                metalness: 0.3
+                roughness: 0.5, // Lower roughness for more vibrant colors
+                metalness: 0.2  // Lower metalness for more solid Minecraft-like colors
             });
             
-            // Create the mesh
-            const mesh = new THREE.Mesh(geometry, material);
-            mesh.name = `player_${playerId}`; // Set the name for finding it later
-            mesh.castShadow = true;
-            mesh.receiveShadow = true;
+            // Create head (slightly smaller than body)
+            const headGeometry = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+            const headMesh = new THREE.Mesh(headGeometry, material);
+            headMesh.position.set(0, 1.4, 0);
+            headMesh.castShadow = true;
+            characterGroup.add(headMesh);
+            
+            // Create body (torso)
+            const bodyGeometry = new THREE.BoxGeometry(0.9, 1.2, 0.5);
+            const bodyMesh = new THREE.Mesh(bodyGeometry, material);
+            bodyMesh.position.set(0, 0.5, 0);
+            bodyMesh.castShadow = true;
+            characterGroup.add(bodyMesh);
+            
+            // Create arms (slightly darker shade for contrast)
+            const armMaterial = material.clone();
+            armMaterial.color.multiplyScalar(0.9); // Slightly darker
+            
+            // Left arm
+            const leftArmGeometry = new THREE.BoxGeometry(0.4, 1.2, 0.4);
+            const leftArmMesh = new THREE.Mesh(leftArmGeometry, armMaterial);
+            leftArmMesh.position.set(-0.65, 0.5, 0);
+            leftArmMesh.castShadow = true;
+            characterGroup.add(leftArmMesh);
+            
+            // Right arm
+            const rightArmGeometry = new THREE.BoxGeometry(0.4, 1.2, 0.4);
+            const rightArmMesh = new THREE.Mesh(rightArmGeometry, armMaterial);
+            rightArmMesh.position.set(0.65, 0.5, 0);
+            rightArmMesh.castShadow = true;
+            characterGroup.add(rightArmMesh);
+            
+            // Create legs (slightly darker shade than body)
+            const legMaterial = material.clone();
+            legMaterial.color.multiplyScalar(0.8); // Darker than arms
+            
+            // Left leg
+            const leftLegGeometry = new THREE.BoxGeometry(0.4, 1.0, 0.4);
+            const leftLegMesh = new THREE.Mesh(leftLegGeometry, legMaterial);
+            leftLegMesh.position.set(-0.25, -0.6, 0);
+            leftLegMesh.castShadow = true;
+            characterGroup.add(leftLegMesh);
+            
+            // Right leg
+            const rightLegGeometry = new THREE.BoxGeometry(0.4, 1.0, 0.4);
+            const rightLegMesh = new THREE.Mesh(rightLegGeometry, legMaterial);
+            rightLegMesh.position.set(0.25, -0.6, 0);
+            rightLegMesh.castShadow = true;
+            characterGroup.add(rightLegMesh);
             
             // Set initial position
-            mesh.position.set(0, 1, 0);
+            characterGroup.position.set(0, 1, 0);
             
             // Add to scene
-            this.game.scene.add(mesh);
+            this.game.scene.add(characterGroup);
             
             // Add a sword
-            this.createSword(playerId, mesh);
+            this.createSword(playerId, characterGroup);
             
-            this.logReconnection(`Created Three.js mesh for player`, {
+            this.logReconnection(`Created Minecraft-style character for player`, {
                 id: playerId,
                 type: characterType
             });
             
-            return mesh;
+            return characterGroup;
             
         } catch (error) {
             this.logReconnection(`Error creating character by type`, {
@@ -1671,29 +1765,71 @@ class MultiplayerManager {
                 }
             });
             
-            // Create a simple box for the sword using THREE.js
-            const geometry = new THREE.BoxGeometry(0.2, 0.2, 2);
-            const material = new THREE.MeshStandardMaterial({
-                color: 0xcccccc, // Silver color
-                roughness: 0.3,
-                metalness: 0.8
+            // Get the player data to determine sword color based on character type
+            const playerData = this.remotePlayers[playerId];
+            const characterType = playerData ? playerData.characterType : 'default';
+            
+            // Create a Minecraft-like sword using THREE.js
+            // Minecraft swords are more blocky and have a distinctive shape
+            const handleGeometry = new THREE.BoxGeometry(0.15, 0.15, 0.6);
+            const bladeGeometry = new THREE.BoxGeometry(0.25, 0.1, 1.2);
+            
+            // Color the sword based on character type
+            let swordColor;
+            switch (characterType) {
+                case 'knight':
+                    swordColor = new THREE.Color(0x00AAFF); // Blue sword for knight
+                    break;
+                case 'ninja':
+                    swordColor = new THREE.Color(0x444444); // Dark gray sword for ninja
+                    break;
+                case 'samurai':
+                    swordColor = new THREE.Color(0xFF4444); // Red sword for samurai
+                    break;
+                default:
+                    swordColor = new THREE.Color(0xCCCCCC); // Default silver
+            }
+            
+            // Create the sword materials
+            const handleMaterial = new THREE.MeshStandardMaterial({
+                color: 0x8B4513, // Brown wooden handle
+                roughness: 0.8,
+                metalness: 0.1
             });
             
-            const swordMesh = new THREE.Mesh(geometry, material);
-            swordMesh.name = `sword_${playerId}`;
-            swordMesh.castShadow = true;
+            const bladeMaterial = new THREE.MeshStandardMaterial({
+                color: swordColor,
+                roughness: 0.3,
+                metalness: 0.7
+            });
+            
+            // Create the sword parts
+            const handleMesh = new THREE.Mesh(handleGeometry, handleMaterial);
+            handleMesh.position.set(0, 0, -0.3); // Position the handle
+            
+            const bladeMesh = new THREE.Mesh(bladeGeometry, bladeMaterial);
+            bladeMesh.position.set(0, 0, 0.6); // Position the blade in front of the handle
+            
+            // Create a group to hold both parts
+            const swordGroup = new THREE.Group();
+            swordGroup.name = `sword_${playerId}`;
+            swordGroup.add(handleMesh);
+            swordGroup.add(bladeMesh);
             
             // Position the sword relative to the player
-            swordMesh.position.set(0.6, 0, 0.5);
+            // For Minecraft-style, we want to position it near the right arm
+            swordGroup.position.set(0.65, 0.5, 0.4);
+            // Rotate the sword to be held properly
+            swordGroup.rotation.set(0, Math.PI/2, 0); 
             
             // Add to parent mesh
-            parentMesh.add(swordMesh);
+            parentMesh.add(swordGroup);
             
-            this.logReconnection(`Created sword for player ${playerId}`);
+            this.logReconnection(`Created Minecraft-style sword for player ${playerId}`);
             
-            return swordMesh;
+            return swordGroup;
             
-                    } catch (error) {
+        } catch (error) {
             this.logReconnection(`Error creating sword`, {
                 error: error.message,
                 playerId
@@ -1744,44 +1880,53 @@ class MultiplayerManager {
             canvas.width = 256;
             canvas.height = 64;
             const ctx = canvas.getContext('2d');
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            
+            // Create Minecraft-style name tag with semi-transparent background
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw border like a Minecraft name tag
+            ctx.strokeStyle = 'rgb(80, 80, 80)';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(2, 2, canvas.width-4, canvas.height-4);
+            
+            // Draw player name in Minecraft style
             ctx.fillStyle = 'white';
-            ctx.font = '30px Arial';
+            ctx.font = 'bold 32px Arial, sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(playerData.name, canvas.width / 2, canvas.height / 2);
             
             // Create a texture from the canvas
             const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
             
-            // Create a plane geometry for the name tag
-            const geometry = new THREE.PlaneGeometry(2, 0.5);
-            const material = new THREE.MeshBasicMaterial({
+            // Create a plane for the name tag
+            const nameTagGeometry = new THREE.PlaneGeometry(1, 0.25);
+            const nameTagMaterial = new THREE.MeshBasicMaterial({
                 map: texture,
                 transparent: true,
                 side: THREE.DoubleSide
             });
             
-            // Create the name tag mesh
-            const nameTag = new THREE.Mesh(geometry, material);
-            nameTag.name = `nameTag_${playerId}`;
+            const nameTagMesh = new THREE.Mesh(nameTagGeometry, nameTagMaterial);
+            nameTagMesh.name = `nameTag_${playerId}`;
             
-            // Position the name tag above the player
-            nameTag.position.set(0, 2.5, 0);
+            // Position the name tag above the player's head
+            // Adjusted for Minecraft-style character with head at the top
+            nameTagMesh.position.set(0, 2.3, 0);
             
-            // Add to player mesh
-            playerMesh.add(nameTag);
-            
-            this.logReconnection(`Created name tag for player ${playerData.name} (${playerId})`);
-            
-            // Always face the camera
+            // Make the name tag always face the camera
             if (this.game.camera) {
-                // Store a reference to the camera for the update function
-                nameTag.userData.camera = this.game.camera;
+                nameTagMesh.userData.camera = this.game.camera;
             }
             
-            return nameTag;
+            // Add to player mesh
+            playerMesh.add(nameTagMesh);
+            
+            this.logReconnection(`Created Minecraft-style name tag for player ${playerId}`);
+            
+            return nameTagMesh;
             
         } catch (error) {
             this.logReconnection(`Error creating name tag`, {
@@ -1889,6 +2034,14 @@ class MultiplayerManager {
         // Record the last update time for ghost detection
         remotePlayer._lastUpdateTime = Date.now();
         
+        // Check if name has been updated - important for name tag updates
+        let nameChanged = false;
+        if (playerData.name && playerData.name !== remotePlayer.name) {
+            this.log(`Player ${playerData.id} name updated from "${remotePlayer.name}" to "${playerData.name}"`);
+            remotePlayer.name = playerData.name;
+            nameChanged = true;
+        }
+        
         // Find the player mesh in the scene
         let playerMesh = null;
         if (this.game && this.game.scene) {
@@ -1909,6 +2062,12 @@ class MultiplayerManager {
                 // Always make sure newly created meshes are visible
                 playerMesh.visible = true;
             }
+        }
+        
+        // If name changed, update the name tag
+        if (nameChanged && playerMesh) {
+            this.log(`Updating name tag for player ${playerData.id} to "${playerData.name}"`);
+            this.createNameTag(playerData.id, remotePlayer);
         }
         
         // Ensure mesh is visible unless player is defeated
@@ -1988,6 +2147,28 @@ class MultiplayerManager {
             // Update the sword visually if we have a player mesh
             if (playerMesh) {
                 this.createSword(playerData.id, playerMesh);
+            }
+        }
+        
+        // Check if character type has changed and update it
+        if (playerData.characterType && remotePlayer.characterType !== playerData.characterType) {
+            this.log(`Remote player ${playerData.id} changed character type from ${remotePlayer.characterType || 'unknown'} to ${playerData.characterType}`);
+            
+            // Update stored character type
+            remotePlayer.characterType = playerData.characterType;
+            
+            // We need to recreate the mesh with the new character type
+            if (playerMesh) {
+                // Remove old mesh from scene
+                this.game.scene.remove(playerMesh);
+                
+                // Create new mesh with correct character type
+                const newMesh = this.createRemotePlayerMesh(playerData.id, remotePlayer);
+                
+                if (newMesh) {
+                    this.createNameTag(playerData.id, remotePlayer);
+                    this.log(`Recreated mesh for player ${playerData.id} with character type ${playerData.characterType}`);
+                }
             }
         }
         
@@ -2315,9 +2496,21 @@ class MultiplayerManager {
             }
             
             // Update name tag rotation to face camera
-            if (nameTag && this.game.camera) {
+            if (this.game.camera) {
+                // Find the name tag in the player mesh children
+                let nameTag = null;
+                if (playerMesh) {
+                    playerMesh.children.forEach(child => {
+                        if (child.name === `nameTag_${id}`) {
+                            nameTag = child;
+                        }
+                    });
+                }
+                
                 // Make name tag always face the camera
-                nameTag.lookAt(this.game.camera.position);
+                if (nameTag) {
+                    nameTag.lookAt(this.game.camera.position);
+                }
             }
             
             // Make sure positions are synced with stored data

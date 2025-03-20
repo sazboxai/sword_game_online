@@ -324,6 +324,13 @@ io.on('connection', (socket) => {
             console.log(`Using provided name '${playerName}' for player ${socket.id}`);
         }
         
+        // Check if this is a name change
+        let isNameChange = false;
+        if (players[socket.id] && players[socket.id].name !== playerName) {
+            console.log(`Player ${socket.id} changed name from '${players[socket.id].name}' to '${playerName}'`);
+            isNameChange = true;
+        }
+        
         // Update existing player data
         players[socket.id] = {
             ...players[socket.id],
@@ -353,6 +360,23 @@ io.on('connection', (socket) => {
         // Notify all other clients about this player joining
         console.log(`Broadcasting playerJoined event for ${socket.id} (${players[socket.id].name})`);
         socket.broadcast.emit('playerJoined', players[socket.id]);
+        
+        // Also send playerUpdated event if this is a name change
+        if (isNameChange) {
+            console.log(`Broadcasting playerUpdated event for name change to '${playerName}'`);
+            socket.broadcast.emit('playerUpdated', {
+                id: socket.id,
+                name: playerName,
+                characterType: players[socket.id].characterType,
+                position: players[socket.id].position,
+                rotation: players[socket.id].rotation,
+                isAttacking: players[socket.id].isAttacking,
+                isBlocking: players[socket.id].isBlocking,
+                swordType: players[socket.id].swordType,
+                health: players[socket.id].health,
+                updateId: Date.now().toString() + Math.random().toString(36).substring(2, 5)
+            });
+        }
         
         // Remove this player from potential ghosts if listed
         if (potentialGhostPlayers[socket.id]) {
@@ -505,6 +529,16 @@ io.on('connection', (socket) => {
             if (players[socket.id].name !== data.name) {
                 console.log(`Player ${socket.id} name changed from '${players[socket.id].name}' to '${data.name}'`);
                 players[socket.id].name = data.name;
+                updatedFields = true;
+            }
+        }
+        
+        // Update character type if provided
+        if (data.characterType && typeof data.characterType === 'string') {
+            // Only update if character type changed
+            if (players[socket.id].characterType !== data.characterType) {
+                console.log(`Player ${socket.id} character type changed from '${players[socket.id].characterType}' to '${data.characterType}'`);
+                players[socket.id].characterType = data.characterType;
                 updatedFields = true;
             }
         }
