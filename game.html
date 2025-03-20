@@ -599,6 +599,9 @@
             // Create a group to hold all parts of the character
             this.mesh = new THREE.Group();
             
+            // Add a 180-degree rotation to fix character orientation
+            this.mesh.rotation.y = Math.PI;
+            
             if (this.type === 'knight') {
                 // Create knight character with armor
                 
@@ -1401,7 +1404,8 @@
                 // In first-person, rotation matches camera
                 if (this.game.isFirstPerson && this.game.mouseX !== undefined) {
                     this.rotation = this.game.mouseX;
-                    this.mesh.rotation.y = this.rotation;
+                    // Apply the rotation while maintaining the 180-degree base rotation
+                    this.mesh.rotation.y = this.rotation + Math.PI;
                 }
             }
             
@@ -1438,6 +1442,11 @@
                 // Normalize rotation
                 while (this.rotation > Math.PI * 2) this.rotation -= Math.PI * 2;
                 while (this.rotation < 0) this.rotation += Math.PI * 2;
+                
+                // Apply rotation to mesh with 180-degree offset
+                if (!this.game.isFirstPerson) {
+                    this.mesh.rotation.y = this.rotation + Math.PI;
+                }
             }
             
             // Handle sprinting
@@ -1684,7 +1693,25 @@
                 
                 // Notify multiplayer system about attack
                 if (this.game && this.game.multiplayer && !this.isRemotePlayer) {
-                    this.game.multiplayer.sendAttack();
+                    // Create attack data object with all required information
+                    const attackData = {
+                        position: {
+                            x: this.position.x,
+                            y: this.position.y,
+                            z: this.position.z
+                        },
+                        direction: {
+                            x: Math.sin(this.rotation),
+                            y: 0,
+                            z: Math.cos(this.rotation)
+                        },
+                        swordType: this.swordType,
+                        damage: this.attackPower + (this.swordStats ? this.swordStats.damage : 0),
+                        hitPlayers: [] // Will be calculated by the server
+                    };
+                    
+                    // Send the attack data to the multiplayer system
+                    this.game.multiplayer.sendAttack(attackData);
                 }
                 
                 // Calculate stamina cost based on weapon damage
@@ -3070,6 +3097,17 @@
                 // Update look direction vector for movement calculations
                 this.lookDirection = new THREE.Vector3(0, 0, -1);
                 this.lookDirection.applyEuler(new THREE.Euler(this.pitch, this.yaw, 0, 'YXZ'));
+                // Ensure lookDirection is normalized
+                this.lookDirection.normalize();
+                
+                // Log the lookDirection occasionally to debug
+                if (Math.random() < 0.001) { // Log roughly once every 1000 frames
+                    console.log('Look direction updated:', 
+                        this.lookDirection.x.toFixed(2), 
+                        this.lookDirection.y.toFixed(2), 
+                        this.lookDirection.z.toFixed(2)
+                    );
+                }
                 
                 // Show crosshair when mouse is locked
                 const crosshair = document.getElementById('crosshair');
@@ -3088,25 +3126,42 @@
                     this.controls.attack = true;
                     
                     // Raycast in the direction the player is looking
-                    if (this.playerCharacter && this.lookDirection) {
+                    if (this.playerCharacter && this.camera && this.lookDirection) {
                         const raycaster = new THREE.Raycaster();
+                        // Explicitly set the camera property on the raycaster
+                        raycaster.camera = this.camera;
+                        
+                        // Create a normalized direction vector
+                        const direction = new THREE.Vector3();
+                        direction.copy(this.lookDirection).normalize();
+                        
+                        // Set raycaster position and direction
                         raycaster.set(
                             this.camera.position,
-                            this.lookDirection.normalize()
+                            direction
                         );
                         
-                        const intersects = raycaster.intersectObjects(this.scene.children, true);
-                        
-                        // Flash the crosshair to indicate hit
-                        const crosshair = document.getElementById('crosshair');
-                        if (crosshair) {
-                            crosshair.style.color = 'rgba(255, 0, 0, 0.9)';
-                            setTimeout(() => {
-                                crosshair.style.color = 'rgba(255, 255, 255, 0.7)';
-                            }, 100);
+                        try {
+                            // Filter out sprites and any null objects from the scene
+                            const objectsToCheck = this.scene.children.filter(obj => 
+                                obj && !(obj instanceof THREE.Sprite));
+                            
+                            // Perform intersection test
+                            const intersects = raycaster.intersectObjects(objectsToCheck, true);
+                            
+                            // Flash the crosshair to indicate hit
+                            const crosshair = document.getElementById('crosshair');
+                            if (crosshair) {
+                                crosshair.style.color = 'rgba(255, 0, 0, 0.9)';
+                                setTimeout(() => {
+                                    crosshair.style.color = 'rgba(255, 255, 255, 0.7)';
+                                }, 100);
+                            }
+                            
+                            console.log('Attack direction:', direction);
+                        } catch (error) {
+                            console.error('Raycaster error:', error);
                         }
-                        
-                        console.log('Attack direction:', this.lookDirection);
                     }
                 }
                 // Right mouse button for block
@@ -3200,6 +3255,17 @@
                     // But we need to update the lookDirection for raycasting during attacks
                     this.lookDirection = new THREE.Vector3(0, 0, -1);
                     this.lookDirection.applyQuaternion(this.camera.quaternion);
+                    // Ensure lookDirection is normalized
+                    this.lookDirection.normalize();
+                    
+                    // Log the lookDirection occasionally to debug
+                    if (Math.random() < 0.001) { // Log roughly once every 1000 frames
+                        console.log('Look direction updated:', 
+                            this.lookDirection.x.toFixed(2), 
+                            this.lookDirection.y.toFixed(2), 
+                            this.lookDirection.z.toFixed(2)
+                        );
+                    }
                     
                     // Make player model invisible in first-person but keep weapons visible
                     if (this.playerCharacter.mesh) {

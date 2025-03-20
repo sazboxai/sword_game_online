@@ -511,7 +511,32 @@ class MultiplayerManager {
     sendAttack(attackData) {
         if (!this.isConnected) return;
         
-        this.socket.emit('playerAttack', attackData);
+        // Log the attack data for debugging
+        console.log('[MultiplayerManager] Sending attack to server:', attackData);
+        
+        // Ensure attackData exists and has required properties
+        if (!attackData) {
+            console.error('[MultiplayerManager] Attack data is null or undefined, creating default data');
+            attackData = {
+                position: { x: 0, y: 0, z: 0 },
+                direction: { x: 0, y: 0, z: 0 },
+                swordType: this.playerCharacter ? this.playerCharacter.swordType : 'broadsword',
+                damage: 10,
+                hitPlayers: []
+            };
+        }
+        
+        // Verify the data structure to prevent server errors
+        const sanitizedData = {
+            position: attackData.position || { x: 0, y: 0, z: 0 },
+            direction: attackData.direction || { x: 0, y: 0, z: 0 },
+            swordType: attackData.swordType || (this.playerCharacter ? this.playerCharacter.swordType : 'broadsword'),
+            damage: attackData.damage || 10,
+            hitPlayers: Array.isArray(attackData.hitPlayers) ? attackData.hitPlayers : []
+        };
+        
+        // Send the attack event to the server
+        this.socket.emit('playerAttack', sanitizedData);
     }
     
     /**
