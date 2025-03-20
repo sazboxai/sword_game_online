@@ -118,6 +118,76 @@ const activeSessions = new Set();
 // Track potential ghost players
 const potentialGhostPlayers = {};
 
+// Map data for consistent terrain across clients
+const gameMap = {
+    // Basic map parameters
+    size: 300,
+    wallHeight: 10,
+    wallThickness: 2,
+    
+    // To store generated terrain features
+    terrain: {
+        hills: [],
+        rocks: [],
+        walls: []
+    }
+};
+
+// Generate a consistent map - this runs once when server starts
+function generateServerMap() {
+    console.log('Generating server-side map...');
+    const mapSize = gameMap.size;
+    const mapHalfSize = mapSize / 2;
+    
+    // Create hills
+    for (let i = 0; i < 45; i++) {
+        const hillHeight = Math.random() * 3 + 1;
+        const hillRadius = Math.random() * 3 + 1;
+        
+        gameMap.terrain.hills.push({
+            height: hillHeight,
+            radius: hillRadius,
+            position: {
+                x: Math.random() * 270 - 135,
+                y: hillHeight / 2,
+                z: Math.random() * 270 - 135
+            }
+        });
+    }
+    
+    // Create rocks
+    for (let i = 0; i < 60; i++) {
+        const rockRadius = Math.random() * 0.8 + 0.3;
+        
+        gameMap.terrain.rocks.push({
+            radius: rockRadius,
+            position: {
+                x: Math.random() * 270 - 135,
+                y: rockRadius / 2,
+                z: Math.random() * 270 - 135
+            },
+            rotation: {
+                x: Math.random() * Math.PI,
+                y: Math.random() * Math.PI,
+                z: Math.random() * Math.PI
+            }
+        });
+    }
+    
+    // Create walls
+    gameMap.terrain.walls = [
+        { pos: [0, gameMap.wallHeight/2, -mapHalfSize], size: [mapSize, gameMap.wallHeight, gameMap.wallThickness] }, // North
+        { pos: [0, gameMap.wallHeight/2, mapHalfSize], size: [mapSize, gameMap.wallHeight, gameMap.wallThickness] },  // South
+        { pos: [-mapHalfSize, gameMap.wallHeight/2, 0], size: [gameMap.wallThickness, gameMap.wallHeight, mapSize] }, // West
+        { pos: [mapHalfSize, gameMap.wallHeight/2, 0], size: [gameMap.wallThickness, gameMap.wallHeight, mapSize] }   // East
+    ];
+    
+    console.log(`Map generated with ${gameMap.terrain.hills.length} hills and ${gameMap.terrain.rocks.length} rocks`);
+}
+
+// Generate the map when the server starts
+generateServerMap();
+
 // Cleanup function for ghost players - improved version
 function cleanupGhostPlayers() {
     const currentTime = Date.now();
@@ -243,7 +313,8 @@ io.on('connection', (socket) => {
         serverTime: Date.now(),
         connectedClients: io.engine.clientsCount,
         playersRegistered: Object.keys(players).length,
-        activePlayerIds: Object.keys(players)
+        activePlayerIds: Object.keys(players),
+        mapData: gameMap // Send map data to client
     });
     
     // Create a basic player record immediately on connection
@@ -422,6 +493,12 @@ io.on('connection', (socket) => {
     socket.on('requestExistingPlayers', () => {
         console.log(`Player ${socket.id} requested existing players list`);
         sendExistingPlayersToClient(socket);
+    });
+
+    // Handle request for map data
+    socket.on('requestMapData', () => {
+        console.log(`Player ${socket.id} requested map data`);
+        socket.emit('mapData', gameMap);
     });
     
     // Handle ping requests (for testing connection)

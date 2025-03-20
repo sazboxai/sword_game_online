@@ -2039,11 +2039,16 @@
             this.scene = null;
             this.camera = null;
             this.renderer = null;
-            this.clock = new THREE.Clock();
             this.playerCharacter = null;
-            this.characterType = null;
+            this.collisionObjects = [];
+            this.powerUps = [];
+            this.isPaused = false;
             this.map = null;
-            this.players = {};
+            this.characterType = null;
+            this.playerName = null;
+            this.multiplayer = null;
+            this.serverMapData = null; // Store the server's map data
+            
             // First-person related properties
             this.isFirstPerson = true;
             this.mouseX = 0;
@@ -2054,9 +2059,7 @@
             this.pitch = 0;
             this.verticalAngleLimit = Math.PI / 3;
             
-            // Store the player's name consistently throughout the game
-            this.playerName = '';
-            
+            // Player controls
             this.controls = {
                 forward: false,
                 backward: false,
@@ -2068,11 +2071,18 @@
                 sprint: false,
                 jump: false
             };
-            this.powerUps = [];
+            
+            // Power-up system
             this.powerUpSpawnTime = 0;
             this.powerUpSpawnInterval = 10000; // Spawn power-up every 10 seconds
             
-            // Bind methods
+            // Multiplayer player tracking
+            this.players = {};
+            
+            // Time tracking
+            this.clock = new THREE.Clock();
+            
+            // Bind methods to this
             this.init = this.init.bind(this);
             this.createMap = this.createMap.bind(this);
             this.animate = this.animate.bind(this);
@@ -2083,6 +2093,8 @@
             this.createCharacter = this.createCharacter.bind(this);
             this.spawnPowerUp = this.spawnPowerUp.bind(this);
             this.checkPowerUpCollisions = this.checkPowerUpCollisions.bind(this);
+            this.setupMapDataListeners = this.setupMapDataListeners.bind(this);
+            this.clearMap = this.clearMap.bind(this);
         }
         
         init() {
@@ -2159,7 +2171,11 @@
             // Connect to server - this only establishes the connection but doesn't register the player yet
             this.multiplayer.connect(playerName, this.characterType || 'knight', 'broadsword');
             
-            // The actual player registration will happen after the character is created
+            // Setup event listeners for server map data
+            this.setupMapDataListeners();
+            
+            // Create the map (will use server data if available)
+            this.createMap();
             
             const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
             directionalLight.position.set(50, 50, 50);
@@ -2167,9 +2183,6 @@
             directionalLight.shadow.mapSize.width = 2048;
             directionalLight.shadow.mapSize.height = 2048;
             this.scene.add(directionalLight);
-            
-            // Create the map
-            this.createMap();
             
             // Handle window resize
             window.addEventListener('resize', () => {
@@ -2190,9 +2203,104 @@
             this.animate();
         }
         
+        setupMapDataListeners() {
+            if (!this.multiplayer || !this.multiplayer.socket) {
+                console.error('Cannot setup map data listeners: multiplayer or socket not initialized');
+                return;
+            }
+            
+            // Listen for map data in the connect acknowledgment
+            this.multiplayer.socket.on('connect_ack', (data) => {
+                if (data.mapData) {
+                    console.log('Received map data from server in connect_ack');
+                    this.serverMapData = data.mapData;
+                    
+                    // If map was already created with random data, recreate it with server data
+                    if (this.map) {
+                        console.log('Recreating map with server data');
+                        this.clearMap();
+                        this.createMap();
+                    }
+                }
+            });
+            
+            // Listen for dedicated map data event
+            this.multiplayer.socket.on('mapData', (mapData) => {
+                console.log('Received map data from server');
+                this.serverMapData = mapData;
+                
+                // If map was already created with random data, recreate it with server data
+                if (this.map) {
+                    console.log('Recreating map with server data');
+                    this.clearMap();
+                    this.createMap();
+                }
+            });
+            
+            // Request map data if not received in connect_ack
+            setTimeout(() => {
+                if (!this.serverMapData && this.multiplayer.socket.connected) {
+                    console.log('Requesting map data from server');
+                    this.multiplayer.socket.emit('requestMapData');
+                }
+            }, 1000);
+        }
+        
+        clearMap() {
+            if (!this.scene) return;
+            
+            // Keep track of objects to remove
+            const objectsToRemove = [];
+            
+            // Find all map-related objects (ground, hills, rocks, walls)
+            this.scene.traverse(obj => {
+                if (obj.userData && (
+                    obj.userData.type === 'ground' || 
+                    obj.userData.type === 'hill' || 
+                    obj.userData.type === 'rock' || 
+                    obj.userData.type === 'wall'
+                )) {
+                    objectsToRemove.push(obj);
+                }
+            });
+            
+            // Remove them from the scene
+            objectsToRemove.forEach(obj => {
+                this.scene.remove(obj);
+                // Dispose of geometries and materials
+                if (obj.geometry) obj.geometry.dispose();
+                if (obj.material) {
+                    if (Array.isArray(obj.material)) {
+                        obj.material.forEach(mat => mat.dispose());
+                    } else {
+                        obj.material.dispose();
+                    }
+                }
+            });
+            
+            // Clear collision objects
+            this.collisionObjects = [];
+        }
+        
         createMap() {
-            // Create the ground - increased by 3x
-            const mapSize = 300; // Increased from 100
+            if (!this.scene) {
+                console.error('Cannot create map: scene not initialized');
+                return;
+            }
+            
+            console.log('Creating map, server data available:', !!this.serverMapData);
+            
+            // Use server data or default values
+            const mapData = this.serverMapData || {
+                size: 300,
+                wallHeight: 10,
+                wallThickness: 2,
+                terrain: { hills: [], rocks: [], walls: [] }
+            };
+            
+            const mapSize = mapData.size;
+            
+            // Create the ground
             const groundGeometry = new THREE.PlaneGeometry(mapSize, mapSize);
             const groundMaterial = new THREE.MeshStandardMaterial({ 
                 color: 0x3a7e4c,
@@ -2202,117 +2310,204 @@
             const ground = new THREE.Mesh(groundGeometry, groundMaterial);
             ground.rotation.x = -Math.PI / 2;
             ground.receiveShadow = true;
+            ground.userData.type = 'ground'; // Mark as map object for potential clearing
             this.scene.add(ground);
             
             // Create a list to store collision objects
             this.collisionObjects = [];
             
-            // Add some terrain features (hills) - more hills for larger map
-            for (let i = 0; i < 45; i++) { // Increased from 15
-                const hillHeight = Math.random() * 3 + 1;
-                const hillRadius = Math.random() * 3 + 1;
-                const hillGeometry = new THREE.ConeGeometry(
-                    hillRadius, 
-                    hillHeight, 
-                    8
-                );
-                const hillMaterial = new THREE.MeshStandardMaterial({ 
-                    color: 0x2a5e3c,
-                    roughness: 0.9
+            // If we have server map data, use it to create terrain features
+            if (this.serverMapData) {
+                // Create hills from server data
+                this.serverMapData.terrain.hills.forEach(hill => {
+                    const hillGeometry = new THREE.ConeGeometry(hill.radius, hill.height, 8);
+                    const hillMaterial = new THREE.MeshStandardMaterial({ 
+                        color: 0x2a5e3c,
+                        roughness: 0.9
+                    });
+                    const hillMesh = new THREE.Mesh(hillGeometry, hillMaterial);
+                    
+                    hillMesh.position.set(hill.position.x, hill.position.y, hill.position.z);
+                    hillMesh.castShadow = true;
+                    hillMesh.receiveShadow = true;
+                    hillMesh.userData.type = 'hill'; // Mark as map object
+                    this.scene.add(hillMesh);
+                    
+                    // Add to collision objects
+                    this.collisionObjects.push({
+                        type: 'hill',
+                        position: new THREE.Vector3(hill.position.x, hill.position.y, hill.position.z),
+                        radius: hill.radius
+                    });
                 });
-                const hill = new THREE.Mesh(hillGeometry, hillMaterial);
                 
-                // Random position on the map - increased range
-                hill.position.x = Math.random() * 270 - 135; // Increased from 90-45
-                hill.position.z = Math.random() * 270 - 135; // Increased from 90-45
-                hill.position.y = hillHeight / 2;
+                // Create rocks from server data
+                this.serverMapData.terrain.rocks.forEach(rock => {
+                    const rockGeometry = new THREE.DodecahedronGeometry(rock.radius, 0);
+                    const rockMaterial = new THREE.MeshStandardMaterial({ 
+                        color: 0x888888,
+                        roughness: 0.9,
+                        metalness: 0.1
+                    });
+                    const rockMesh = new THREE.Mesh(rockGeometry, rockMaterial);
+                    
+                    rockMesh.position.set(rock.position.x, rock.position.y, rock.position.z);
+                    rockMesh.rotation.set(rock.rotation.x, rock.rotation.y, rock.rotation.z);
+                    rockMesh.castShadow = true;
+                    rockMesh.receiveShadow = true;
+                    rockMesh.userData.type = 'rock'; // Mark as map object
+                    this.scene.add(rockMesh);
+                    
+                    // Add to collision objects
+                    this.collisionObjects.push({
+                        type: 'rock',
+                        position: new THREE.Vector3(rock.position.x, rock.position.y, rock.position.z),
+                        radius: rock.radius * 1.5 // Make collision slightly larger than visual
+                    });
+                });
                 
-                hill.castShadow = true;
-                hill.receiveShadow = true;
-                this.scene.add(hill);
+                // Create walls from server data
+                this.serverMapData.terrain.walls.forEach(wall => {
+                    const wallGeometry = new THREE.BoxGeometry(wall.size[0], wall.size[1], wall.size[2]);
+                    const wallMaterial = new THREE.MeshStandardMaterial({ 
+                        color: 0x8b4513,
+                        roughness: 0.8
+                    });
+                    const wallMesh = new THREE.Mesh(wallGeometry, wallMaterial);
+                    
+                    wallMesh.position.set(wall.pos[0], wall.pos[1], wall.pos[2]);
+                    wallMesh.castShadow = true;
+                    wallMesh.receiveShadow = true;
+                    wallMesh.userData.type = 'wall'; // Mark as map object
+                    this.scene.add(wallMesh);
+                    
+                    // Add to collision objects - using a box collision for walls
+                    this.collisionObjects.push({
+                        type: 'wall',
+                        position: new THREE.Vector3(wall.pos[0], wall.pos[1], wall.pos[2]),
+                        size: new THREE.Vector3(wall.size[0], wall.size[1], wall.size[2])
+                    });
+                });
+            } else {
+                // Fallback to random generation if server data isn't available yet
+                console.log('Using fallback random map generation');
                 
-                // Add to collision objects with the proper radius
-                this.collisionObjects.push({
-                    type: 'hill',
-                    position: new THREE.Vector3(hill.position.x, hill.position.y, hill.position.z),
-                    radius: hillRadius
+                // Add some terrain features (hills)
+                for (let i = 0; i < 45; i++) {
+                    const hillHeight = Math.random() * 3 + 1;
+                    const hillRadius = Math.random() * 3 + 1;
+                    const hillGeometry = new THREE.ConeGeometry(
+                        hillRadius, 
+                        hillHeight, 
+                        8
+                    );
+                    const hillMaterial = new THREE.MeshStandardMaterial({ 
+                        color: 0x2a5e3c,
+                        roughness: 0.9
+                    });
+                    const hill = new THREE.Mesh(hillGeometry, hillMaterial);
+                    
+                    // Random position on the map
+                    hill.position.x = Math.random() * 270 - 135;
+                    hill.position.z = Math.random() * 270 - 135;
+                    hill.position.y = hillHeight / 2;
+                    
+                    hill.castShadow = true;
+                    hill.receiveShadow = true;
+                    hill.userData.type = 'hill'; // Mark as map object
+                    this.scene.add(hill);
+                    
+                    // Add to collision objects with the proper radius
+                    this.collisionObjects.push({
+                        type: 'hill',
+                        position: new THREE.Vector3(hill.position.x, hill.position.y, hill.position.z),
+                        radius: hillRadius
+                    });
+                }
+                
+                // Add some rocks
+                for (let i = 0; i < 60; i++) {
+                    const rockRadius = Math.random() * 0.8 + 0.3;
+                    const rockGeometry = new THREE.DodecahedronGeometry(
+                        rockRadius,
+                        0
+                    );
+                    const rockMaterial = new THREE.MeshStandardMaterial({ 
+                        color: 0x888888,
+                        roughness: 0.9,
+                        metalness: 0.1
+                    });
+                    const rock = new THREE.Mesh(rockGeometry, rockMaterial);
+                    
+                    // Random position on the map
+                    rock.position.x = Math.random() * 270 - 135;
+                    rock.position.z = Math.random() * 270 - 135;
+                    rock.position.y = rockRadius / 2;
+                    
+                    // Random rotation
+                    rock.rotation.x = Math.random() * Math.PI;
+                    rock.rotation.z = Math.random() * Math.PI;
+                    
+                    rock.castShadow = true;
+                    rock.receiveShadow = true;
+                    rock.userData.type = 'rock'; // Mark as map object
+                    this.scene.add(rock);
+                    
+                    // Add to collision objects with the proper radius
+                    this.collisionObjects.push({
+                        type: 'rock',
+                        position: new THREE.Vector3(rock.position.x, rock.position.y, rock.position.z),
+                        radius: rock.radius * 1.5 // Make collision slightly larger than visual
+                    });
+                }
+                
+                // Create boundary walls
+                const wallHeight = 10;
+                const wallThickness = 2;
+                const wallColor = 0x8b4513; // Brown
+                const mapHalfSize = 150; // Half of 300
+                
+                // Create walls
+                const walls = [
+                    { pos: [0, wallHeight/2, -mapHalfSize], size: [300, wallHeight, wallThickness] }, // North
+                    { pos: [0, wallHeight/2, mapHalfSize], size: [300, wallHeight, wallThickness] },  // South
+                    { pos: [-mapHalfSize, wallHeight/2, 0], size: [wallThickness, wallHeight, 300] }, // West
+                    { pos: [mapHalfSize, wallHeight/2, 0], size: [wallThickness, wallHeight, 300] }   // East
+                ];
+                
+                walls.forEach(wallData => {
+                    const wallGeometry = new THREE.BoxGeometry(
+                        wallData.size[0], 
+                        wallData.size[1], 
+                        wallData.size[2]
+                    );
+                    const wallMaterial = new THREE.MeshStandardMaterial({ 
+                        color: wallColor,
+                        roughness: 0.8
+                    });
+                    const wall = new THREE.Mesh(wallGeometry, wallMaterial);
+                    wall.position.set(wallData.pos[0], wallData.pos[1], wallData.pos[2]);
+                    wall.castShadow = true;
+                    wall.receiveShadow = true;
+                    wall.userData.type = 'wall'; // Mark as map object
+                    this.scene.add(wall);
+                    
+                    // Add to collision objects
+                    this.collisionObjects.push({
+                        type: 'wall',
+                        position: new THREE.Vector3(wallData.pos[0], wallData.pos[1], wallData.pos[2]),
+                        size: new THREE.Vector3(wallData.size[0], wallData.size[1], wallData.size[2])
+                    });
                 });
             }
-            
-            // Add some rocks - more rocks for larger map
-            for (let i = 0; i < 60; i++) { // Increased from 20
-                const rockRadius = Math.random() * 0.8 + 0.3;
-                const rockGeometry = new THREE.DodecahedronGeometry(
-                    rockRadius,
-                    0
-                );
-                const rockMaterial = new THREE.MeshStandardMaterial({ 
-                    color: 0x888888,
-                    roughness: 0.9,
-                    metalness: 0.1
-                });
-                const rock = new THREE.Mesh(rockGeometry, rockMaterial);
-                
-                // Random position on the map - increased range
-                rock.position.x = Math.random() * 270 - 135; // Increased from 90-45
-                rock.position.z = Math.random() * 270 - 135; // Increased from 90-45
-                rock.position.y = rockRadius / 2;
-                
-                // Random rotation
-                rock.rotation.x = Math.random() * Math.PI;
-                rock.rotation.z = Math.random() * Math.PI;
-                
-                rock.castShadow = true;
-                rock.receiveShadow = true;
-                this.scene.add(rock);
-                
-                // Add to collision objects with the proper radius
-                this.collisionObjects.push({
-                    type: 'rock',
-                    position: new THREE.Vector3(rock.position.x, rock.position.y, rock.position.z),
-                    radius: rockRadius * 1.5 // Make collision slightly larger than visual
-                });
-            }
-            
-            // Create boundary walls - increased size for larger map
-            const wallHeight = 10; // Increased from 5
-            const wallThickness = 2; // Increased from 1
-            const wallColor = 0x8b4513; // Brown
-            const mapHalfSize = 150; // Half of 300
-            
-            // Create walls - enlarged for bigger map
-            const walls = [
-                { pos: [0, wallHeight/2, -mapHalfSize], size: [300, wallHeight, wallThickness] }, // North
-                { pos: [0, wallHeight/2, mapHalfSize], size: [300, wallHeight, wallThickness] },  // South
-                { pos: [-mapHalfSize, wallHeight/2, 0], size: [wallThickness, wallHeight, 300] }, // West
-                { pos: [mapHalfSize, wallHeight/2, 0], size: [wallThickness, wallHeight, 300] }   // East
-            ];
-            
-            walls.forEach(wall => {
-                const wallGeometry = new THREE.BoxGeometry(wall.size[0], wall.size[1], wall.size[2]);
-                const wallMaterial = new THREE.MeshStandardMaterial({ 
-                    color: wallColor,
-                    roughness: 0.8
-                });
-                const wallMesh = new THREE.Mesh(wallGeometry, wallMaterial);
-                wallMesh.position.set(wall.pos[0], wall.pos[1], wall.pos[2]);
-                wallMesh.castShadow = true;
-                wallMesh.receiveShadow = true;
-                this.scene.add(wallMesh);
-                
-                // Add walls to collision objects
-                this.collisionObjects.push({
-                    type: 'wall',
-                    position: new THREE.Vector3(wall.pos[0], wall.pos[1], wall.pos[2]),
-                    size: new THREE.Vector3(wall.size[0], wall.size[1], wall.size[2])
-                });
-            });
             
             // Store map reference
             this.map = {
-                ground: ground,
-                size: 300 // Size of the map (width/depth) - increased from 100
+                collisionObjects: this.collisionObjects,
+                size: mapSize // Size of the map (width/depth)
             };
+            
+            console.log(`Map created with ${this.collisionObjects.length} collision objects`);
             
             // Create initial power-up
             this.spawnPowerUp();

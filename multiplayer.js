@@ -326,7 +326,7 @@ class MultiplayerManager {
             }
             
             this.logReconnection(`Ghost player cleanup complete, removed ${playersToRemove.size} players`);
-        } else {
+                } else {
             this.logReconnection(`No ghost players detected during cleanup`);
         }
     }
@@ -387,7 +387,7 @@ class MultiplayerManager {
         this.updateConnectionStatus('connecting', 'Connecting to server...');
         
         // Create socket connection if not already present
-        if (!this.socket) {
+            if (!this.socket) {
             try {
                 this.logReconnection(`Creating new socket connection`);
                 
@@ -409,7 +409,7 @@ class MultiplayerManager {
                 });
                 
                 // Set up event handlers for the socket
-                this.setupSocketEvents();
+            this.setupSocketEvents();
                 
                 // Set up ping/heartbeat for connection monitoring
                 this.startHeartbeat();
@@ -456,10 +456,10 @@ class MultiplayerManager {
             
             // Start registering as a connected player
             if (this.playerName) {
-                if (this.isReconnecting) {
+            if (this.isReconnecting) {
                     this.logReconnection(`Reconnection successful, registering with previous session info`);
                     this.registerPlayer(true);
-                } else {
+            } else {
                     this.log(`New connection, registering as ${this.playerName}`);
                     this.registerPlayer(false);
                 }
@@ -1020,13 +1020,13 @@ class MultiplayerManager {
         }
         
         this._isReconnecting = true;
-        this.reconnectAttempts++;
+            this.reconnectAttempts++;
         
-        this.logReconnection(`Reconnection attempt ${this.reconnectAttempts}`, {
+            this.logReconnection(`Reconnection attempt ${this.reconnectAttempts}`, { 
             reason,
-            attempts: this.reconnectAttempts,
-            maxAttempts: this.maxReconnectAttempts
-        });
+                attempts: this.reconnectAttempts,
+                maxAttempts: this.maxReconnectAttempts
+            });
         
         // If we've exceeded our max attempts, stop trying
         if (this.reconnectAttempts > this.maxReconnectAttempts) {
@@ -1043,9 +1043,9 @@ class MultiplayerManager {
                 previousSessionId: this.previousSessionId
             });
         }
-        
+            
         // Store player state for reconnection (position, health, etc.)
-        if (this.game && this.game.playerCharacter) {
+            if (this.game && this.game.playerCharacter) {
             const position = this.game.playerCharacter.getPosition();
             const health = this.game.playerCharacter.health;
             const swordType = this.game.playerCharacter.swordType;
@@ -1060,34 +1060,34 @@ class MultiplayerManager {
         }
         
         // Flag that we're reconnecting for the connection process
-        this.isReconnecting = true;
-        this.logReconnection(`Set reconnection flag to true before connection attempt`);
-        
+            this.isReconnecting = true;
+            this.logReconnection(`Set reconnection flag to true before connection attempt`);
+            
         // More aggressive reconnection strategy for transport errors
         if (reason === 'transport close' || reason === 'transport error') {
             this.logReconnection(`Using aggressive reconnection strategy for ${reason}`);
             
             // Force disconnect the existing socket if it's still around
-            if (this.socket) {
+                if (this.socket) {
                 this.logReconnection(`Forced disconnect of existing socket before reconnection`);
-                try {
-                    this.socket.disconnect();
+                    try {
+                        this.socket.disconnect();
                 } catch (e) {
                     this.logReconnection(`Error disconnecting socket: ${e.message}`);
+                    }
                 }
-            }
-            
+                
             // Create a new socket and attempt reconnection immediately
-            setTimeout(() => {
+                setTimeout(() => {
                 this.logReconnection(`Creating new socket connection for reconnection`);
                 this.connect(this.playerName, this.game.playerCharacter.type, this.game.playerCharacter.swordType);
-                
+                    
                 // Additionally, we'll force refresh all players after reconnection
-                setTimeout(() => {
+                    setTimeout(() => {
                     this.logReconnection(`Forcing refresh of all player meshes after reconnection`);
                     this.forceRefresh();
                     this._isReconnecting = false;
-                }, 2000);
+                    }, 2000);
             }, 500);
         } else {
             // For other disconnect reasons, use normal reconnection
@@ -1097,7 +1097,7 @@ class MultiplayerManager {
                 if (this.socket && this.socket.disconnected) {
                     this.logReconnection(`Attempting to reconnect socket`);
                     this.socket.connect();
-                } else {
+        } else {
                     this.logReconnection(`Creating new socket for reconnection`);
                     this.connect(this.playerName, this.game.playerCharacter.type, this.game.playerCharacter.swordType);
                 }
@@ -1448,8 +1448,8 @@ class MultiplayerManager {
                         });
                         
                         if (!meshExists) {
-                            // Game is now available but player mesh doesn't exist yet
-                            this.logReconnection(`Game now available - creating delayed mesh for player ${playerData.name}`);
+                        // Game is now available but player mesh doesn't exist yet
+                        this.logReconnection(`Game now available - creating delayed mesh for player ${playerData.name}`);
                             this.createRemotePlayerMesh(playerData.id, this.remotePlayers[playerData.id]);
                             this.createNameTag(playerData.id, this.remotePlayers[playerData.id]);
                         }
@@ -1829,7 +1829,7 @@ class MultiplayerManager {
             
             return swordGroup;
             
-        } catch (error) {
+                    } catch (error) {
             this.logReconnection(`Error creating sword`, {
                 error: error.message,
                 playerId
@@ -2105,8 +2105,8 @@ class MultiplayerManager {
                         Math.abs(playerMesh.position.y - newPos.y) > 5 ||
                         Math.abs(playerMesh.position.z - newPos.z) > 5) {
                         
-                        playerMesh.position.set(newPos.x, newPos.y, newPos.z);
-                        
+                playerMesh.position.set(newPos.x, newPos.y, newPos.z);
+                
                         // Also update our stored position
                         if (!remotePlayer.position) {
                             remotePlayer.position = { x: 0, y: 0, z: 0 };
@@ -2132,7 +2132,7 @@ class MultiplayerManager {
                         z: { value: newPos.z, valid: validZ }
                     });
                 }
-            } else {
+                        } else {
                 this.log(`Remote player ${playerData.id} sent invalid position data: ${JSON.stringify(newPos)}`);
             }
         }
@@ -2360,8 +2360,8 @@ class MultiplayerManager {
             // Append to debug element if it exists and is visible
             const timestamp = new Date().toLocaleTimeString();
             if (this.debugElement && this.debugElement.style.display !== 'none') {
-                this.debugElement.innerHTML += `<div>[${timestamp}] ${message}</div>`;
-                this.debugElement.scrollTop = this.debugElement.scrollHeight;
+            this.debugElement.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+            this.debugElement.scrollTop = this.debugElement.scrollHeight;
             }
         }
     }
@@ -2386,7 +2386,7 @@ class MultiplayerManager {
             }
             
             // Create log entry and store it silently
-            const logEntry = {
+        const logEntry = { 
                 time: Date.now(),
                 message: message || '(empty message)',
                 data: data || null
@@ -2400,7 +2400,7 @@ class MultiplayerManager {
             }
             
             if (Array.isArray(this.reconnectionLogs)) {
-                this.reconnectionLogs.push(logEntry);
+        this.reconnectionLogs.push(logEntry);
             } else {
                 this.reconnectionLogs = [logEntry];
             }
@@ -2451,7 +2451,7 @@ class MultiplayerManager {
         
         // Update our position on the server
         if (this.game && this.game.playerCharacter) {
-            this.updatePosition();
+        this.updatePosition();
         }
         
         // Apply interpolation to smooth out remote player movements
@@ -2509,12 +2509,12 @@ class MultiplayerManager {
                 
                 // Make name tag always face the camera
                 if (nameTag) {
-                    nameTag.lookAt(this.game.camera.position);
+                nameTag.lookAt(this.game.camera.position);
                 }
             }
             
             // Make sure positions are synced with stored data
-            if (remotePlayer.position) {
+                    if (remotePlayer.position) {
                 // Verify the position values to avoid NaN errors
                 const x = typeof remotePlayer.position.x === 'number' ? remotePlayer.position.x : 0;
                 const y = typeof remotePlayer.position.y === 'number' ? remotePlayer.position.y : 0;
@@ -3029,7 +3029,7 @@ class MultiplayerManager {
         this.logReconnection(`Requesting existing players from server`);
         if (this.socket && this.socket.connected) {
             this.socket.emit('requestExistingPlayers');
-        } else {
+                        } else {
             this.logReconnection(`Cannot request players - socket not connected`);
         }
         
@@ -3058,51 +3058,51 @@ class MultiplayerManager {
             
             if (needsFullRefresh) {
                 this.logReconnection(`Performing full refresh - removing and recreating all player meshes`);
-                
-                // Remove all existing player meshes
-                if (this.game && this.game.scene) {
-                    const meshesToRemove = [];
-                    this.game.scene.traverse(obj => {
-                        if (obj.name && (
-                            obj.name.startsWith('player_') || 
-                            obj.name.startsWith('sword_') || 
-                            obj.name.startsWith('nameTag_')
-                        )) {
-                            meshesToRemove.push(obj);
-                        }
-                    });
-                    
-                    this.logReconnection(`Removing ${meshesToRemove.length} existing player meshes`);
-                    meshesToRemove.forEach(mesh => {
-                        this.logReconnection(`Disposing mesh: ${mesh.name}`);
-                        if (mesh.parent) {
-                            mesh.parent.remove(mesh);
-                        } else {
-                            this.game.scene.remove(mesh);
-                        }
-                        
-                        // Dispose of resources
-                        if (mesh.geometry) mesh.geometry.dispose();
-                        if (mesh.material) {
-                            if (Array.isArray(mesh.material)) {
-                                mesh.material.forEach(mat => mat.dispose());
-                            } else {
-                                mesh.material.dispose();
-                            }
-                        }
-                    });
-                    
-                    // Use our dedicated method to create all meshes
-                    this.createMeshesForExistingPlayers();
-                } else {
-                    this.logReconnection(`Cannot recreate meshes - game or scene not available`);
-                    
-                    // If game isn't available, re-initialize with the game
-                    if (window.gameInstance && window.gameInstance.scene) {
-                        this.logReconnection(`Attempting to reinitialize with global game instance`);
-                        this.initialize(window.gameInstance);
+            
+            // Remove all existing player meshes
+            if (this.game && this.game.scene) {
+                const meshesToRemove = [];
+                this.game.scene.traverse(obj => {
+                    if (obj.name && (
+                        obj.name.startsWith('player_') || 
+                        obj.name.startsWith('sword_') || 
+                        obj.name.startsWith('nameTag_')
+                    )) {
+                        meshesToRemove.push(obj);
                     }
+                });
+                
+                this.logReconnection(`Removing ${meshesToRemove.length} existing player meshes`);
+                meshesToRemove.forEach(mesh => {
+                    this.logReconnection(`Disposing mesh: ${mesh.name}`);
+                    if (mesh.parent) {
+                        mesh.parent.remove(mesh);
+                    } else {
+                        this.game.scene.remove(mesh);
+                    }
+                    
+                    // Dispose of resources
+                    if (mesh.geometry) mesh.geometry.dispose();
+                    if (mesh.material) {
+                        if (Array.isArray(mesh.material)) {
+                            mesh.material.forEach(mat => mat.dispose());
+                        } else {
+                            mesh.material.dispose();
+                        }
+                    }
+                });
+                
+                // Use our dedicated method to create all meshes
+                this.createMeshesForExistingPlayers();
+            } else {
+                this.logReconnection(`Cannot recreate meshes - game or scene not available`);
+                
+                // If game isn't available, re-initialize with the game
+                if (window.gameInstance && window.gameInstance.scene) {
+                    this.logReconnection(`Attempting to reinitialize with global game instance`);
+                    this.initialize(window.gameInstance);
                 }
+            }
             } else {
                 this.logReconnection(`Full refresh not needed, all players appear to have meshes`);
             }
