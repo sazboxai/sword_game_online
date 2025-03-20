@@ -294,6 +294,7 @@
     debugElement.style.zIndex = '1000';
     debugElement.style.fontFamily = 'monospace';
     debugElement.style.fontSize = '14px';
+    debugElement.style.display = 'none'; // Hide debug element by default
     debugElement.innerHTML = 'Game loading...';
     document.body.appendChild(debugElement);
 
@@ -2120,6 +2121,12 @@
             
             // Initialize multiplayer system
             this.multiplayer = new MultiplayerManager(this);
+            
+            // Also set it as the global instance for emergency recovery
+            window.gameInstance = this;
+            
+            // Explicitly call initialize to ensure player meshes are created
+            this.multiplayer.initialize(this);
             
             // Always attempt to connect to multiplayer server
             // Get the player name from the input field

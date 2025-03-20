@@ -113,50 +113,112 @@ app.get('/status', (req, res) => {
 // Track connected players
 const players = {};
 const games = {};
+// Track unique sessions for ghost detection
+const activeSessions = new Set();
+// Track potential ghost players
+const potentialGhostPlayers = {};
 
-// Helper function: Send existing players to a newly connected client
-function sendExistingPlayersToClient(socket) {
-    console.log(`===== SENDING EXISTING PLAYERS TO ${socket.id} =====`);
+// Cleanup function for ghost players - improved version
+function cleanupGhostPlayers() {
+    const currentTime = Date.now();
+    const inactiveTimeout = 30000; // 30 seconds
+    let removedCount = 0;
     
-    // Create a list of other players (not including the requesting player)
-    const otherPlayers = {};
+    // Only print header if we're actually removing players
+    let logHeader = false;
     
-    // Count how many fully registered players we're sending
-    let fullyRegisteredCount = 0;
-    
-    // Loop through all players
+    // Identify potential ghost players - not updated recently
     for (const id in players) {
-        // Skip sending the requesting player their own data
-        if (id === socket.id) {
-            console.log(`Skipping sending ${id} (requesting player) to themselves`);
-            continue;
-        }
+        const player = players[id];
+        const lastActivity = player.lastActivity || player.joinedAt;
+        const inactiveDuration = currentTime - lastActivity;
         
-        // Only include fully registered players
-        if (players[id].fullyRegistered) {
-            otherPlayers[id] = { ...players[id] };
-            fullyRegisteredCount++;
-            console.log(`Including player ${players[id].name} (${id})`);
+        // If player hasn't updated in a while, mark as potential ghost
+        if (inactiveDuration > inactiveTimeout) {
+            // Only log the first detection
+            if (!potentialGhostPlayers[id]) {
+                potentialGhostPlayers[id] = {
+                    firstDetectedAt: currentTime,
+                    name: player.name,
+                    inactiveFor: inactiveDuration
+                };
+            }
+            
+            // If player has been inactive for a long time, remove them
+            if (inactiveDuration > 120000 || // 2 minutes of inactivity
+                (potentialGhostPlayers[id] && (currentTime - potentialGhostPlayers[id].firstDetectedAt > 60000))) {
+                
+                // Print header if we haven't already
+                if (!logHeader) {
+                    console.log(`\n[GHOST CLEANUP] Running ghost player cleanup at ${new Date().toISOString()}`);
+                    logHeader = true;
+                }
+                
+                console.log(`[GHOST CLEANUP] Removing confirmed ghost player ${player.name} (${id}) - inactive for ${Math.floor(inactiveDuration/1000)}s`);
+                
+                // Notify all clients that this player left
+                io.emit('playerLeft', {
+                    id: id,
+                    name: player.name,
+                    lastPosition: player.position,
+                    reason: 'ghost_cleanup'
+                });
+                
+                // Remove player from registry
+                delete players[id];
+                delete potentialGhostPlayers[id];
+                removedCount++;
+            }
         } else {
-            console.log(`Skipping unregistered player ${id}`);
+            // Player is active, remove from potential ghosts if present
+            if (potentialGhostPlayers[id]) {
+                delete potentialGhostPlayers[id];
+            }
         }
     }
     
-    // Send the list to the client
-    console.log(`Sending ${fullyRegisteredCount} players to ${socket.id}`);
-    socket.emit('existingPlayers', otherPlayers);
-    console.log(`============================`);
+    // Only log summary if we removed players
+    if (removedCount > 0) {
+        console.log(`[GHOST CLEANUP] Removed ${removedCount} ghost players`);
+        console.log(`[GHOST CLEANUP] Cleanup complete. Remaining players: ${Object.keys(players).length}`);
+    }
 }
 
-// Log that the Socket.io server is ready
-console.log('Socket.io server initialized and ready for connections');
+// Run cleanup every 15 seconds
+setInterval(() => {
+    cleanupGhostPlayers();
+    
+    // Also periodically broadcast player positions to help with synchronization
+    for (const id in players) {
+        if (players[id].fullyRegistered && players[id].position) {
+            const updateId = Date.now().toString() + Math.random().toString(36).substring(2, 5);
+            
+            // Broadcast to everyone except the player
+            io.sockets.sockets.get(id)?.broadcast.emit('playerUpdated', {
+                id: id,
+                name: players[id].name,
+                characterType: players[id].characterType,
+                position: players[id].position,
+                rotation: players[id].rotation,
+                isAttacking: players[id].isAttacking,
+                isBlocking: players[id].isBlocking,
+                swordType: players[id].swordType,
+                health: players[id].health,
+                updateId: updateId,
+                isForcedSync: true
+            });
+        }
+    }
+}, 15000);
 
-// Add interval to log player count
+// Add interval to log player count - reduced frequency
 setInterval(() => {
     const connectedSockets = Object.keys(io.sockets.sockets).length;
     const registeredPlayers = Object.keys(players).filter(id => players[id].fullyRegistered).length;
-    console.log(`\n[STATUS] Connected clients: ${connectedSockets}, Registered players: ${registeredPlayers}`);
+    
+    // Only log if there are actually players connected
     if (registeredPlayers > 0) {
+        console.log(`\n[STATUS] Connected clients: ${connectedSockets}, Registered players: ${registeredPlayers}`);
         console.log(`[STATUS] Players:`);
         Object.keys(players).forEach(id => {
             const player = players[id];
@@ -165,16 +227,24 @@ setInterval(() => {
             }
         });
     }
-    console.log(`[STATUS] Socket.io connections: ${io.engine.clientsCount}`);
-}, 5000);
+}, 30000); // Reduced from 5000ms to 30000ms (30 seconds)
 
-// Socket.io connection handler
+// Handle Socket.io connections
 io.on('connection', (socket) => {
-    console.log(`\n===== NEW PLAYER CONNECTED =====`);
-    console.log(`Socket ID: ${socket.id}`);
-    console.log(`Client IP: ${socket.handshake.address}`);
-    console.log(`Transport: ${socket.conn.transport.name}`);
-    console.log(`User Agent: ${socket.handshake.headers['user-agent']}`);
+    // Log connections with unique IDs
+    console.log(`[${new Date().toISOString()}] New client connected - Socket ID: ${socket.id}`);
+    
+    // Store connection time to track potential ghost connections
+    socket.connectionTime = Date.now();
+    
+    // Send acknowledgment with useful information for client-side debugging
+    socket.emit('connect_ack', {
+        socketId: socket.id,
+        serverTime: Date.now(),
+        connectedClients: io.engine.clientsCount,
+        playersRegistered: Object.keys(players).length,
+        activePlayerIds: Object.keys(players)
+    });
     
     // Create a basic player record immediately on connection
     players[socket.id] = {
@@ -185,13 +255,20 @@ io.on('connection', (socket) => {
         characterType: 'knight', // Default character
         position: { x: 0, y: 0, z: 0 },
         rotation: 0,
-        health: 100
+        health: 100,
+        socketId: socket.id, // Track socket ID explicitly
+        lastActivity: Date.now() // Track last activity 
     };
     
     // Handle test events from client
     socket.on('test', (data) => {
         console.log(`\n===== TEST MESSAGE FROM CLIENT ${socket.id} =====`);
         console.log(data);
+        
+        // Update player's last activity
+        if (players[socket.id]) {
+            players[socket.id].lastActivity = Date.now();
+        }
         
         // Send a response back to acknowledge receipt
         socket.emit('testResponse', { 
@@ -228,6 +305,14 @@ io.on('connection', (socket) => {
         console.log(`Character Type: ${playerData.characterType}`);
         console.log(`Sword Type: ${playerData.swordType}`);
         console.log(`Initial Position:`, playerData.position);
+        console.log(`Session ID:`, playerData.sessionId || 'Not provided');
+        
+        // Track session if provided
+        if (playerData.sessionId) {
+            activeSessions.add(playerData.sessionId);
+            console.log(`[SESSION] Added session ${playerData.sessionId} to active sessions`);
+            console.log(`[SESSION] Total active sessions: ${activeSessions.size}`);
+        }
         
         // Validate and sanitize player name
         let playerName = playerData.name;
@@ -247,7 +332,11 @@ io.on('connection', (socket) => {
             characterType: playerData.characterType || 'knight',
             swordType: playerData.swordType || 'broadsword',
             fullyRegistered: true,
-            lastActivity: Date.now()
+            autoRegistered: false,
+            explicitlyRegistered: true,
+            lastActivity: Date.now(),
+            socketId: socket.id, // Ensure socket ID is explicitly tracked
+            sessionId: playerData.sessionId || null // Track client session ID
         };
         
         // Update position if provided
@@ -264,6 +353,24 @@ io.on('connection', (socket) => {
         // Notify all other clients about this player joining
         console.log(`Broadcasting playerJoined event for ${socket.id} (${players[socket.id].name})`);
         socket.broadcast.emit('playerJoined', players[socket.id]);
+        
+        // Remove this player from potential ghosts if listed
+        if (potentialGhostPlayers[socket.id]) {
+            console.log(`Player ${playerName} (${socket.id}) was marked as potential ghost, removing from ghost list`);
+            delete potentialGhostPlayers[socket.id];
+        }
+        
+        // Check for players with the same name but different sockets (potential ghosts)
+        for (const id in players) {
+            if (id !== socket.id && players[id].name === playerName) {
+                console.log(`\n[WARNING] Found another player with same name: ${playerName} (${id})`);
+                potentialGhostPlayers[id] = {
+                    firstDetectedAt: Date.now(),
+                    name: playerName,
+                    reason: 'duplicate_name'
+                };
+            }
+        }
         
         // Send existing players to the newly joined player
         console.log(`Sending existing players to ${socket.id} (${players[socket.id].name})`);
@@ -295,108 +402,101 @@ io.on('connection', (socket) => {
     
     // Handle ping requests (for testing connection)
     socket.on('ping', (data, callback) => {
-        console.log(`Ping from ${socket.id}, timestamp: ${data.timestamp}`);
-        if (typeof callback === 'function') {
-            callback({
-                status: 'success',
-                timestamp: Date.now(),
-                clientTimestamp: data.timestamp,
-                playerId: socket.id,
-                ping: Date.now() - data.timestamp
-            });
+        // Skip logging ping events
+        // console.log(`Ping from ${socket.id}, timestamp: ${data.timestamp}`);
+        
+        // Update player's last activity time for ghost detection
+        if (players[socket.id]) {
+            players[socket.id].lastActivity = Date.now();
+        }
+        
+        // Handle callback properly with null checks
+        if (callback && typeof callback === 'function') {
+            try {
+                callback({
+                    status: 'success',
+                    timestamp: Date.now(),
+                    clientTimestamp: data?.timestamp || Date.now(),
+                    playerId: socket.id,
+                    ping: data?.timestamp ? Date.now() - data.timestamp : 0
+                });
+            } catch (error) {
+                console.error(`Error in ping callback for ${socket.id}: ${error.message}`);
+            }
         }
     });
     
-    // Handle player movement updates
+    // Handle player updates with reduced logging
     socket.on('playerUpdate', (data) => {
-        // Update player data
+        // Ensure the player exists
         if (!players[socket.id]) {
-            console.log(`Received update from unregistered player ${socket.id}`);
-            
-            // Auto-create player if it doesn't exist yet
-            players[socket.id] = {
-                id: socket.id,
-                name: `Player_${socket.id.substring(0, 5)}`,
-                characterType: data.characterType || 'knight',
-                position: data.position || { x: 0, y: 0, z: 0 },
-                rotation: data.rotation || 0,
-                health: 100,
-                swordType: data.swordType || 'broadsword',
-                isAttacking: data.isAttacking || false,
-                isBlocking: data.isBlocking || false,
-                joinedAt: Date.now(),
-                fullyRegistered: false, // Not fully registered yet
-                autoRegistrationAttempted: true
-            };
-            console.log(`Auto-created player record for ${socket.id}`);
+            console.log(`Received update from non-existent player ${socket.id}`);
             return;
         }
         
-        // Update player's last activity timestamp
+        // Track the last activity time for ghost detection
         players[socket.id].lastActivity = Date.now();
         
-        // Check if player should be auto-registered after receiving position updates
-        if (!players[socket.id].fullyRegistered && !players[socket.id].autoRegistrationRejected) {
-            if (!players[socket.id].autoRegistrationAttempted) {
-                console.log(`Auto-registering player ${socket.id} after position update`);
-                players[socket.id].fullyRegistered = true;
-                players[socket.id].autoRegistrationAttempted = true;
-                
-                // Broadcast that this player is now available
-                socket.broadcast.emit('playerJoined', {
-                    ...players[socket.id],
-                    _autoRegistered: true
-                });
-                
-                // Also send existing players to this newly registered player
-                sendExistingPlayersToClient(socket);
-            }
-        }
-        
-        // Store previous position for debugging
-        const prevPos = players[socket.id].position ? {...players[socket.id].position} : null;
-        
-        // Ensure position is valid before updating
+        // Validate position data to prevent errors
         if (data.position && typeof data.position === 'object') {
-            // Validate each coordinate
-            const x = typeof data.position.x === 'number' ? data.position.x : players[socket.id].position?.x || 0;
-            const y = typeof data.position.y === 'number' ? data.position.y : players[socket.id].position?.y || 0;
-            const z = typeof data.position.z === 'number' ? data.position.z : players[socket.id].position?.z || 0;
+            const isValidX = typeof data.position.x === 'number' && !isNaN(data.position.x) && isFinite(data.position.x);
+            const isValidY = typeof data.position.y === 'number' && !isNaN(data.position.y) && isFinite(data.position.y);
+            const isValidZ = typeof data.position.z === 'number' && !isNaN(data.position.z) && isFinite(data.position.z);
             
-            // Check for invalid (NaN/Infinity) values
-            if (isNaN(x) || isNaN(y) || isNaN(z) || 
-                !isFinite(x) || !isFinite(y) || !isFinite(z)) {
-                console.error(`Invalid position data from ${socket.id}:`, data.position);
-                return; // Skip update
-            }
-            
-            // Update player position
-            players[socket.id].position = { x, y, z };
-            
-            // Log position change (only if significant movement occurred)
-            if (prevPos && (
-                Math.abs(prevPos.x - x) > 0.5 ||
-                Math.abs(prevPos.z - z) > 0.5
-            )) {
-                console.log(`Player ${players[socket.id].name} (${socket.id}) moved from:`, 
-                    `(${prevPos.x.toFixed(2)}, ${prevPos.y.toFixed(2)}, ${prevPos.z.toFixed(2)})`,
-                    'to:',
-                    `(${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)})`);
+            if (isValidX && isValidY && isValidZ) {
+                // Calculate the movement delta for conditional logging
+                let delta = 0;
+                if (players[socket.id].position) {
+                    const dx = data.position.x - players[socket.id].position.x;
+                    const dy = data.position.y - players[socket.id].position.y;
+                    const dz = data.position.z - players[socket.id].position.z;
+                    delta = Math.sqrt(dx*dx + dy*dy + dz*dz);
+                }
+                
+                // Update player position
+                players[socket.id].position = {
+                    x: data.position.x,
+                    y: data.position.y, 
+                    z: data.position.z
+                };
+                
+                // Only log significant movements or test movements
+                if (data.isTestMovement && Math.random() < 0.1) { // Only log 10% of test movements
+                    console.log(`Test movement from ${socket.id}: (${data.position.x.toFixed(2)}, ${data.position.y.toFixed(2)}, ${data.position.z.toFixed(2)})`);
+                } 
+                else if (delta > 5.0 && Math.random() < 0.1) { // Only log large movements, and only 10% of them
+                    console.log(`Player ${socket.id} moved ${delta.toFixed(2)} units`);
+                }
+            } else {
+                console.log(`Invalid position data from ${socket.id}:`, data.position);
             }
         }
         
-        // Update other properties with validation
-        if (typeof data.rotation === 'number') {
+        // Handle non-position data (collected first but processed later)
+        let updatedFields = false;
+        
+        // Update rotation if valid
+        if (typeof data.rotation === 'number' && !isNaN(data.rotation) && isFinite(data.rotation)) {
             players[socket.id].rotation = data.rotation;
+            updatedFields = true;
         }
+        
+        // Update attack state
         if (typeof data.isAttacking === 'boolean') {
             players[socket.id].isAttacking = data.isAttacking;
+            updatedFields = true;
         }
+        
+        // Update blocking state
         if (typeof data.isBlocking === 'boolean') {
             players[socket.id].isBlocking = data.isBlocking;
+            updatedFields = true;
         }
+        
+        // Update sword type
         if (data.swordType && typeof data.swordType === 'string') {
             players[socket.id].swordType = data.swordType;
+            updatedFields = true;
         }
         
         // Update player name if provided
@@ -405,21 +505,27 @@ io.on('connection', (socket) => {
             if (players[socket.id].name !== data.name) {
                 console.log(`Player ${socket.id} name changed from '${players[socket.id].name}' to '${data.name}'`);
                 players[socket.id].name = data.name;
+                updatedFields = true;
             }
         }
         
         // Create a timestamp to ensure unique updates
         const updateId = Date.now().toString() + Math.random().toString(36).substring(2, 7);
         
+        // OPTIMIZATION: Prioritize position updates by sending immediately
         // Broadcast player update to all other players
         socket.broadcast.emit('playerUpdated', {
             id: socket.id,
+            name: players[socket.id].name,
+            characterType: players[socket.id].characterType,
             position: players[socket.id].position,
             rotation: players[socket.id].rotation,
             isAttacking: players[socket.id].isAttacking,
             isBlocking: players[socket.id].isBlocking,
             swordType: players[socket.id].swordType,
-            updateId: updateId // Ensure each update is treated as unique
+            health: players[socket.id].health,
+            updateId: updateId, // Ensure each update is treated as unique
+            timestamp: Date.now() // Add server timestamp for latency calculation
         });
     });
     
@@ -545,24 +651,40 @@ io.on('connection', (socket) => {
             const lastPosition = players[socket.id].position;
             const timeInGame = Date.now() - joinedAt;
             const wasFullyRegistered = players[socket.id].fullyRegistered;
+            const sessionId = players[socket.id].sessionId;
             
-            // Notify other players about this player leaving
-            socket.broadcast.emit('playerLeft', {
-                id: socket.id,
-                name: playerName,
-                lastPosition: lastPosition,
-                timeInGame: timeInGame
-            });
-            console.log(`Broadcast playerLeft event for ${socket.id} (${playerName})`);
-            
-            // Remove player from players object
-            delete players[socket.id];
-            
-            // Log detailed player information
             console.log(`Player ${playerName} (${socket.id}) disconnected`);
             console.log(`Time in game: ${Math.floor(timeInGame / 1000)} seconds`);
             console.log(`Was fully registered: ${wasFullyRegistered ? 'Yes' : 'No'}`);
             console.log(`Last position: ${JSON.stringify(lastPosition)}`);
+            
+            // Immediately notify ALL clients about this player leaving
+            io.emit('playerLeft', {
+                id: socket.id,
+                name: playerName,
+                lastPosition: lastPosition,
+                timeInGame: timeInGame,
+                reason: 'disconnect',
+                socketId: socket.id // Include socket ID for reference
+            });
+            console.log(`Emitted playerLeft event for ${socket.id} (${playerName}) to ALL clients`);
+            
+            // Remove player from players object
+            delete players[socket.id];
+            
+            // Also remove from potential ghosts if present
+            if (potentialGhostPlayers[socket.id]) {
+                delete potentialGhostPlayers[socket.id];
+                console.log(`Removed ${socket.id} from potential ghost players list`);
+            }
+            
+            // Track session changes
+            if (sessionId) {
+                console.log(`Disconnect for player with session ID: ${sessionId}`);
+                // Don't remove session immediately, as the player may refresh and reconnect
+            }
+            
+            // Log detailed player information
             console.log(`Player ${playerName} (${socket.id}) removed from game`);
             console.log(`Remaining players: ${Object.keys(players).length}`);
             console.log(`Fully registered players: ${Object.keys(players).filter(id => players[id].fullyRegistered).length}`);
@@ -576,9 +698,65 @@ io.on('connection', (socket) => {
         } else {
             // Handle disconnection for unregistered socket
             console.log(`Disconnected socket ${socket.id} was not in players object`);
-            console.log(`This could happen if the client disconnected before auto-registration completed`);
+            console.log(`This could happen if the client disconnected before registration completed`);
         }
         console.log(`=============================`);
+    });
+
+    // Handle specific ghost player removal request
+    socket.on('removeGhostPlayer', (data) => {
+        console.log(`[${new Date().toISOString()}] Received request to remove ghost player:`, data);
+        
+        if (!data || !data.ghostId) {
+            console.log('Invalid ghost player removal request - missing ghost ID');
+            return;
+        }
+        
+        // Verify that the ghost player exists
+        const ghostPlayer = players[data.ghostId];
+        if (!ghostPlayer) {
+            console.log(`Ghost player with ID ${data.ghostId} not found`);
+            return;
+        }
+        
+        // Extra verification - check if name matches
+        if (data.playerName && ghostPlayer.name !== data.playerName) {
+            console.log(`Ghost player name mismatch: ${ghostPlayer.name} vs ${data.playerName}`);
+            // Still proceed with removal, but log the discrepancy
+        }
+        
+        console.log(`[${new Date().toISOString()}] Removing ghost player: ${ghostPlayer.name} (${data.ghostId})`);
+        
+        // Notify all clients about the player leaving
+        io.emit('playerLeft', {
+            id: data.ghostId,
+            name: ghostPlayer.name,
+            reason: 'ghost_player_removal',
+            requestedBy: data.newId
+        });
+        
+        // Remove the player from our server-side tracking
+        delete players[data.ghostId];
+        
+        // Confirm removal to the requesting client
+        socket.emit('ghostPlayerRemoved', {
+            success: true,
+            removedId: data.ghostId,
+            remainingPlayers: Object.keys(players).length
+        });
+        
+        console.log(`[${new Date().toISOString()}] Ghost player removed. Remaining players: ${Object.keys(players).length}`);
+    });
+
+    // Handle specific request for active player list
+    socket.on('requestActivePlayersList', () => {
+        console.log(`[${new Date().toISOString()}] Player ${socket.id} requested active players list`);
+        
+        // Send all active player IDs to the client
+        socket.emit('activePlayersList', {
+            players: Object.keys(players).filter(id => players[id].fullyRegistered),
+            timestamp: Date.now()
+        });
     });
 });
 
@@ -664,3 +842,35 @@ const DIAGNOSTIC_PORT = 8990;
 diagnosticServer.listen(DIAGNOSTIC_PORT, () => {
     console.log(`Diagnostic WebSocket server running on port ${DIAGNOSTIC_PORT}`);
 });
+
+/**
+ * Send existing players to a specific client
+ */
+function sendExistingPlayersToClient(socket) {
+    const filteredPlayers = {};
+    
+    // Only send fully registered players
+    Object.keys(players).forEach(id => {
+        if (players[id].fullyRegistered) {
+            // Create a copy without internal fields
+            filteredPlayers[id] = {
+                id: players[id].id,
+                name: players[id].name,
+                characterType: players[id].characterType,
+                swordType: players[id].swordType,
+                position: players[id].position,
+                rotation: players[id].rotation,
+                health: players[id].health
+            };
+        }
+    });
+    
+    // Send the filtered list to the client
+    socket.emit('existingPlayers', filteredPlayers);
+    
+    console.log(`Sending ${Object.keys(filteredPlayers).length} players to ${socket.id}`);
+}
+
+// Log that the Socket.io server is ready
+console.log('Socket.io server initialized and ready for connections');
+
