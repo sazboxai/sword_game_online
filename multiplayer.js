@@ -2197,81 +2197,475 @@ class MultiplayerManager {
      */
     handleRemotePlayerAttack(data) {
         try {
+            // Add clear debug logging for attack events
+            console.log(`🗡️ REMOTE ATTACK RECEIVED from player ${data?.id}`, data);
+            
             // Validate input data
             if (!data || !data.id) {
-                this.log('Received invalid attack data');
+                console.error('Received invalid attack data:', data);
                 return;
             }
             
             const remotePlayer = this.remotePlayers[data.id];
             if (!remotePlayer) {
-                this.log(`Unknown remote player ${data.id} attacked - ignoring`);
+                console.error(`Unknown remote player ${data.id} attacked - ignoring`, { 
+                    availablePlayers: Object.keys(this.remotePlayers) 
+                });
                 return;
             }
             
-            this.log(`Remote player ${data.id} attacked with ${data.swordType || 'unknown weapon'}`);
+            console.log(`Remote player ${data.id} (${remotePlayer.name}) attacked with ${data.swordType || 'unknown weapon'}`);
+            
+            // Find the player mesh
+            let playerMesh = null;
+            if (this.game && this.game.scene) {
+                this.game.scene.traverse(obj => {
+                    if (obj.name === `player_${data.id}`) {
+                        playerMesh = obj;
+                    }
+                });
+            }
+            
+            if (!playerMesh) {
+                console.error(`Cannot find player mesh for player ${data.id} - creating it`);
+                playerMesh = this.createRemotePlayerMesh(data.id, remotePlayer);
+                
+                if (!playerMesh) {
+                    console.error(`Failed to create player mesh for player ${data.id}`);
+                    return;
+                }
+            }
+            
+            // CRITICAL FIX: Find the sword in the player mesh children
+            let swordMesh = null;
+            playerMesh.traverse((child) => {
+                // Use startsWith to be more flexible in finding the sword
+                if (child.name && child.name.startsWith(`sword_`)) {
+                    swordMesh = child;
+                    console.log(`Found sword for player ${data.id}: ${child.name}`);
+                }
+            });
+            
+            // If no sword found, create one
+            if (!swordMesh) {
+                console.log(`Creating missing sword for player ${data.id}`);
+                swordMesh = this.createSword(data.id, playerMesh);
+                
+                if (!swordMesh) {
+                    console.error(`Failed to create sword for player ${data.id}`);
+                    
+                    // Last resort - create a basic sword
+                    const tempSwordGeometry = new THREE.BoxGeometry(0.1, 0.1, 1);
+                    const tempSwordMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFFFF });
+                    swordMesh = new THREE.Mesh(tempSwordGeometry, tempSwordMaterial);
+                    swordMesh.name = `sword_${data.id}`;
+                    playerMesh.add(swordMesh);
+                }
+            }
+            
+            // Make sure the sword is visible
+            if (swordMesh) {
+                swordMesh.visible = true;
+                
+                // Store the sword reference on the remote player object for easier access
+                remotePlayer.sword = swordMesh;
+            } else {
+                console.error(`Could not find or create sword for player ${data.id}`);
+                return;
+            }
             
             // Update the remote player's sword type if it's included in the attack data
             if (data.swordType && remotePlayer.swordType !== data.swordType) {
-                // Store the sword type for future reference
+                console.log(`Updating sword type for player ${data.id} from ${remotePlayer.swordType} to ${data.swordType}`);
                 remotePlayer.swordType = data.swordType;
                 
-                // Try to update the visual sword if the player has the switchSword method
-                if (typeof remotePlayer.switchSword === 'function') {
-                    try {
-                        remotePlayer.switchSword(data.swordType);
-                    } catch (error) {
-                        console.error(`Error switching sword for remote player: ${error.message}`);
-                        // Fall back to createSword if that exists
-                        if (typeof remotePlayer.createSword === 'function') {
-                            // Remove existing sword if present
-                            if (remotePlayer.sword && remotePlayer.mesh) {
-                                remotePlayer.mesh.remove(remotePlayer.sword);
-                            }
-                            remotePlayer.createSword(data.swordType);
-                        }
+                // Recreate the sword with the correct type
+                this.createSword(data.id, playerMesh);
+                
+                // Update the sword reference
+                playerMesh.traverse((child) => {
+                    if (child.name && child.name.startsWith(`sword_`)) {
+                        swordMesh = child;
+                        remotePlayer.sword = child;
                     }
-                }
+                });
             }
             
-            // Play attack animation
-            if (remotePlayer.attackAnimation) {
-                remotePlayer.attackAnimation.play();
+            // Create a dramatic attack effect at the player's position
+            this.createAttackEffect(playerMesh.position, data.direction);
+            
+            // Animate the sword swing with the fixed sword reference
+            if (remotePlayer.sword) {
+                console.log(`Animating sword swing for player ${data.id}`);
+                this.animateRemotePlayerAttack(remotePlayer, data);
+            } else {
+                console.error(`Cannot animate attack - sword reference missing after all attempts`);
             }
             
             // Check if our character was hit
-            // Make sure hitPlayers is an array before using includes
             const hitPlayers = Array.isArray(data.hitPlayers) ? data.hitPlayers : [];
             if (this.game.playerCharacter && this.socket && hitPlayers.includes(this.socket.id)) {
-                this.log(`We were hit by player ${data.id}`);
-                
-                // Calculate damage based on remote player's sword type
-                let damage = 10; // Default damage
-                const swordType = data.swordType || remotePlayer.swordType || 'broadsword';
-                
-                switch(swordType) {
-                    case 'broadsword': damage = 15; break;
-                    case 'katana': damage = 12; break;
-                    case 'ninjato': damage = 10; break;
-                    case 'greatsword': damage = 20; break;
-                    case 'rapier': damage = 12; break;
-                    case 'dualdaggers': damage = 8; break;
-                }
+                console.log(`We were hit by player ${data.id}!`);
                 
                 // Apply damage
+                let damage = data.damage || 10;
                 if (typeof this.game.playerCharacter.takeDamage === 'function') {
                     this.game.playerCharacter.takeDamage(damage, data.id);
                 }
                 
-                // Check if we've been defeated
-                if (this.game.playerCharacter.health <= 0) {
-                    if (typeof this.game.playerCharacter.showRespawnUI === 'function') {
-                        this.game.playerCharacter.showRespawnUI();
-                    }
+                // Play hit sound
+                try {
+                    const hitSound = new Audio('hit.mp3');
+                    hitSound.volume = 0.3;
+                    hitSound.play().catch(e => console.error('Error playing hit sound:', e));
+                } catch (e) {
+                    console.error('Error with hit sound:', e);
                 }
+                
+                // Show hit effect
+                this.showHitEffect();
             }
         } catch (error) {
-            console.error(`Error handling remote player attack: ${error.message}`);
+            console.error(`Error handling remote player attack:`, error);
+            console.error('Attack data:', data);
+            console.error('Stack trace:', error.stack);
+        }
+    }
+    
+    /**
+     * Display a hit effect when player is attacked
+     */
+    showHitEffect() {
+        // Create a red flash overlay
+        const overlay = document.createElement('div');
+        overlay.style.position = 'fixed';
+        overlay.style.top = '0';
+        overlay.style.left = '0';
+        overlay.style.width = '100%';
+        overlay.style.height = '100%';
+        overlay.style.backgroundColor = 'rgba(255, 0, 0, 0.3)';
+        overlay.style.zIndex = '1000';
+        overlay.style.pointerEvents = 'none';
+        overlay.style.transition = 'opacity 0.5s';
+        
+        // Add to document
+        document.body.appendChild(overlay);
+        
+        // Fade out and remove
+        setTimeout(() => {
+            overlay.style.opacity = '0';
+            setTimeout(() => {
+                document.body.removeChild(overlay);
+            }, 500);
+        }, 100);
+    }
+    
+    /**
+     * Animate the remote player's sword swing
+     * @param {Object} remotePlayer - The remote player object
+     * @param {Object} attackData - The attack data from the server
+     */
+    animateRemotePlayerAttack(remotePlayer, attackData) {
+        try {
+            console.log('Starting remote player attack animation');
+            
+            if (!remotePlayer) {
+                console.error('Cannot animate attack - remote player is null');
+                return;
+            }
+            
+            // Double check that we have the sword reference
+            if (!remotePlayer.sword) {
+                console.error('Cannot animate attack - sword not found on remote player object');
+                
+                // Try to find the sword in the player mesh
+                if (this.game && this.game.scene) {
+                    let playerMesh = null;
+                    this.game.scene.traverse(obj => {
+                        if (obj.name === `player_${attackData.id}`) {
+                            playerMesh = obj;
+                        }
+                    });
+                    
+                    if (playerMesh) {
+                        playerMesh.traverse(child => {
+                            if (child.name && child.name.startsWith('sword_')) {
+                                remotePlayer.sword = child;
+                                console.log(`Found sword for animation: ${child.name}`);
+                            }
+                        });
+                    }
+                }
+                
+                // If we still don't have a sword, abort
+                if (!remotePlayer.sword) {
+                    return;
+                }
+            }
+            
+            // Force the sword to be visible
+            remotePlayer.sword.visible = true;
+            
+            // Set player as attacking
+            remotePlayer.isAttacking = true;
+            remotePlayer.lastAttackTime = Date.now();
+            
+            // Store original sword position and rotation
+            const originalRotation = {
+                x: remotePlayer.sword.rotation.x || 0,
+                y: remotePlayer.sword.rotation.y || 0,
+                z: remotePlayer.sword.rotation.z || 0,
+                posX: remotePlayer.sword.position.x || 0,
+                posY: remotePlayer.sword.position.y || 0,
+                posZ: remotePlayer.sword.position.z || 0
+            };
+            
+            // Save original values to the player for use in animation
+            remotePlayer.originalSwordRotation = originalRotation;
+            
+            console.log(`Starting sword animation for ${attackData.id} - original position:`, {
+                rotation: {
+                    x: originalRotation.x,
+                    y: originalRotation.y,
+                    z: originalRotation.z
+                },
+                position: {
+                    x: originalRotation.posX,
+                    y: originalRotation.posY,
+                    z: originalRotation.posZ
+                }
+            });
+            
+            // Create an attack animation function with even more dramatic movement
+            const animateSwing = () => {
+                if (!remotePlayer.isAttacking || !remotePlayer.sword) {
+                    console.log(`Animation stopped early - player no longer attacking or sword missing`);
+                    return;
+                }
+                
+                try {
+                    const attackDuration = 600; // ms (longer for better visibility)
+                    const attackProgress = (Date.now() - remotePlayer.lastAttackTime) / attackDuration;
+                    
+                    if (attackProgress < 1) {
+                        // Split animation into phases
+                        if (attackProgress < 0.2) {
+                            // Wind-up phase - very exaggerated
+                            const pullBackFactor = Math.sin(attackProgress / 0.2 * Math.PI/2);
+                            remotePlayer.sword.rotation.x = originalRotation.x - Math.PI * 0.8 * pullBackFactor;
+                            remotePlayer.sword.rotation.z = originalRotation.z + 0.7 * pullBackFactor;
+                            remotePlayer.sword.position.y = originalRotation.posY + 0.3 * pullBackFactor;
+                        } 
+                        else if (attackProgress < 0.6) {
+                            // Forward slash phase - extremely dramatic
+                            const swingProgress = (attackProgress - 0.2) / 0.4; // normalize
+                            const swingCurve = Math.sin(swingProgress * Math.PI);
+                            
+                            // Swing sword forward and down with extreme rotation
+                            remotePlayer.sword.rotation.x = originalRotation.x - Math.PI * 0.8 + Math.PI * 1.6 * swingProgress;
+                            remotePlayer.sword.rotation.z = originalRotation.z + 0.7 - (0.9 * swingProgress) + (swingCurve * 0.3);
+                            
+                            // Forward thrust during swing - very dramatic
+                            const thrustAmount = Math.sin(swingProgress * Math.PI) * 1.5; // Tripled from original
+                            remotePlayer.sword.position.z = originalRotation.posZ - thrustAmount;
+                            
+                            // Add extreme horizontal sweep - 90 degrees
+                            const horizontalSweep = Math.sin(swingProgress * Math.PI) * 1.0; // Tripled
+                            remotePlayer.sword.position.x = originalRotation.posX + horizontalSweep;
+                            
+                            // Add dramatic vertical movement
+                            remotePlayer.sword.position.y = originalRotation.posY + 0.3 - (0.5 * swingProgress);
+                        }
+                        else {
+                            // Recovery phase
+                            const recoveryProgress = (attackProgress - 0.6) / 0.4;
+                            const recoveryEase = 1 - Math.pow(1 - recoveryProgress, 2); // Ease out quad
+                            
+                            // Return to starting position
+                            remotePlayer.sword.rotation.x = originalRotation.x + Math.PI * 0.8 - (Math.PI * 0.8 * recoveryEase);
+                            remotePlayer.sword.rotation.z = originalRotation.z - 0.2 + (0.2 * recoveryEase);
+                            
+                            // Move position back
+                            remotePlayer.sword.position.z = originalRotation.posZ - 0.5 + (0.5 * recoveryEase);
+                            remotePlayer.sword.position.x = originalRotation.posX + 0.2 - (0.2 * recoveryEase);
+                            remotePlayer.sword.position.y = originalRotation.posY - 0.2 + (0.2 * recoveryEase);
+                        }
+                        
+                        // Continue animation loop
+                        requestAnimationFrame(animateSwing);
+                    } else {
+                        // Animation complete, reset sword position
+                        console.log(`Attack animation completed, resetting sword position`);
+                        remotePlayer.sword.rotation.x = originalRotation.x;
+                        remotePlayer.sword.rotation.y = originalRotation.y;
+                        remotePlayer.sword.rotation.z = originalRotation.z;
+                        
+                        remotePlayer.sword.position.x = originalRotation.posX;
+                        remotePlayer.sword.position.y = originalRotation.posY;
+                        remotePlayer.sword.position.z = originalRotation.posZ;
+                        
+                        remotePlayer.isAttacking = false;
+                    }
+                } catch (animError) {
+                    console.error(`Error during attack animation:`, animError);
+                    // Reset state to avoid getting stuck
+                    remotePlayer.isAttacking = false;
+                }
+            };
+            
+            // Start animation loop
+            animateSwing();
+            
+        } catch (error) {
+            console.error('Error in animateRemotePlayerAttack:', error);
+            console.error('RemotePlayer:', remotePlayer?.id);
+            console.error('AttackData:', attackData);
+            // Reset state to avoid getting stuck
+            if (remotePlayer) {
+                remotePlayer.isAttacking = false;
+            }
+        }
+    }
+    
+    /**
+     * Create a visual effect for attacks
+     * @param {Object} position - The position of the attack
+     * @param {Object} direction - The direction of the attack
+     */
+    createAttackEffect(position, direction) {
+        if (!this.game || !this.game.scene) {
+            console.error('Cannot create attack effect - game or scene not available');
+            return;
+        }
+        
+        console.log('Creating attack effect at position:', position);
+        
+        // Create multiple attack effects for better visibility
+        try {
+            // 1. Create a larger, more visible slash effect
+            const slashGeometry = new THREE.TorusGeometry(2, 0.2, 8, 16, Math.PI); // Larger torus
+            const slashMaterial = new THREE.MeshBasicMaterial({
+                color: 0xFF4500, // Bright orange-red
+                transparent: true,
+                opacity: 0.8,
+                side: THREE.DoubleSide // Visible from both sides
+            });
+            const slashEffect = new THREE.Mesh(slashGeometry, slashMaterial);
+            
+            // 2. Add a glow effect using a second, larger torus
+            const glowGeometry = new THREE.TorusGeometry(2.2, 0.5, 8, 16, Math.PI);
+            const glowMaterial = new THREE.MeshBasicMaterial({
+                color: 0xFFFF00, // Bright yellow
+                transparent: true,
+                opacity: 0.3,
+                side: THREE.DoubleSide
+            });
+            const glowEffect = new THREE.Mesh(glowGeometry, glowMaterial);
+            
+            // 3. Create a particle burst effect
+            const particleCount = 20;
+            const particleGeometry = new THREE.SphereGeometry(0.1, 8, 8);
+            const particleMaterial = new THREE.MeshBasicMaterial({
+                color: 0xFFFFFF, // White
+                transparent: true,
+                opacity: 0.7
+            });
+            
+            const particles = [];
+            for (let i = 0; i < particleCount; i++) {
+                const particle = new THREE.Mesh(particleGeometry, particleMaterial.clone());
+                // Random position within a small sphere around the attack point
+                const angle = Math.random() * Math.PI * 2;
+                const radius = Math.random() * 1.5;
+                particle.position.set(
+                    Math.cos(angle) * radius,
+                    Math.random() * 1.5 - 0.75,
+                    Math.sin(angle) * radius
+                );
+                // Store random direction for animation
+                particle.userData.direction = new THREE.Vector3(
+                    Math.random() * 2 - 1,
+                    Math.random() * 2 - 1,
+                    Math.random() * 2 - 1
+                ).normalize();
+                particle.userData.speed = Math.random() * 0.1 + 0.05;
+                particles.push(particle);
+            }
+            
+            // Create a group to hold all effects
+            const effectGroup = new THREE.Group();
+            effectGroup.add(slashEffect);
+            effectGroup.add(glowEffect);
+            particles.forEach(p => effectGroup.add(p));
+            
+            // Position at attack location
+            effectGroup.position.copy(position);
+            effectGroup.position.y += 1.5; // Slightly higher to be more visible
+            
+            // Orient based on attack direction
+            if (direction) {
+                const angle = Math.atan2(direction.x, direction.z);
+                effectGroup.rotation.y = angle;
+            }
+            
+            // Rotate the slash to be vertical
+            slashEffect.rotation.x = Math.PI / 2;
+            glowEffect.rotation.x = Math.PI / 2;
+            
+            // Add to scene
+            this.game.scene.add(effectGroup);
+            
+            // Animate the slash effect
+            let opacity = 1.0;
+            let scale = 1;
+            
+            const animateEffect = () => {
+                // Reduce opacity
+                opacity -= 0.035;
+                
+                // Increase scale
+                scale += 0.06;
+                
+                // Update the slash and glow effects
+                slashEffect.material.opacity = opacity;
+                slashEffect.scale.set(scale, scale, 1);
+                
+                glowEffect.material.opacity = opacity * 0.5;
+                glowEffect.scale.set(scale, scale, 1);
+                
+                // Animate particles
+                particles.forEach(particle => {
+                    const dir = particle.userData.direction;
+                    const speed = particle.userData.speed;
+                    particle.position.x += dir.x * speed;
+                    particle.position.y += dir.y * speed;
+                    particle.position.z += dir.z * speed;
+                    particle.material.opacity = opacity;
+                });
+                
+                if (opacity > 0) {
+                    requestAnimationFrame(animateEffect);
+                } else {
+                    // Remove from scene when animation is complete
+                    this.game.scene.remove(effectGroup);
+                    
+                    // Dispose of geometries and materials
+                    slashGeometry.dispose();
+                    slashMaterial.dispose();
+                    glowGeometry.dispose();
+                    glowMaterial.dispose();
+                    particleGeometry.dispose();
+                    particles.forEach(p => p.material.dispose());
+                }
+            };
+            
+            // Start animation
+            animateEffect();
+            
+            console.log('Attack effect created and animating');
+            
+        } catch (error) {
+            console.error('Error creating attack effect:', error);
         }
     }
     

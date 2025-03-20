@@ -1539,23 +1539,34 @@
                         // Return side rotation with slight wobble effect
                         this.sword.rotation.z = this.originalSwordRotation.z + 0.3 - (0.4 * swingProgress) + (swingCurve * 0.1);
                         
-                        // Forward thrust during swing
-                        const thrustAmount = Math.sin(swingProgress * Math.PI) * 0.2 * amplifier;
+                        // Forward thrust during swing - ENHANCED for more dramatic forward movement
+                        const thrustAmount = Math.sin(swingProgress * Math.PI) * 0.5 * amplifier; // Increased from 0.2 to 0.5
                         if (this.sword.position.z !== undefined) {
                             if (inFirstPerson) {
                                 // More dramatic motion in first-person
                                 this.sword.position.z = -0.5 - thrustAmount;
+                                // Add horizontal sweep motion (90 degrees)
+                                const sweepAmount = Math.sin(swingProgress * Math.PI) * 0.4;
+                                this.sword.position.x = 0.5 - sweepAmount;
                             } else {
                                 this.sword.position.z = this.originalSwordRotation.posZ - thrustAmount;
+                                // For third-person, add horizontal sweep as well
+                                const horizontalSweep = Math.sin(swingProgress * Math.PI) * 0.3;
+                                this.sword.position.x = (this.originalSwordRotation.posX || 0) + horizontalSweep;
                             }
                         }
                         
                         // Add dynamic movement to y-position
                         if (inFirstPerson) {
                             this.sword.position.y = -0.3 + (0.2 * swingCurve);
-                            this.sword.position.x = 0.5 - (0.2 * swingProgress);
                         } else {
                             this.sword.position.y = (this.originalSwordRotation.y || 0) + 0.1 - (0.15 * swingProgress);
+                        }
+                        
+                        // Perform hit detection at the peak of the swing (around 0.4 progress)
+                        if (swingProgress > 0.3 && swingProgress < 0.5 && !this.hasCheckedHit) {
+                            this.checkAttackHits();
+                            this.hasCheckedHit = true;
                         }
                     }
                     else {
@@ -1574,6 +1585,8 @@
                                 this.sword.position.y = -0.3 + (0.1 * (1-recoveryEase));
                             } else {
                                 this.sword.position.z = this.originalSwordRotation.posZ - 0.2 + (0.2 * recoveryEase);
+                                // Return x position to original
+                                this.sword.position.x = (this.originalSwordRotation.posX || 0);
                             }
                         }
                     }
@@ -1592,10 +1605,12 @@
                             // Reset sword position for third-person
                             if (this.sword.position.z !== undefined) {
                                 this.sword.position.z = this.originalSwordRotation.posZ || 0;
+                                this.sword.position.x = this.originalSwordRotation.posX || 0;
                             }
                         }
                     }
                     this.isAttacking = false;
+                    this.hasCheckedHit = false;
                 }
             }
             
@@ -1691,6 +1706,7 @@
                 this.isAttacking = true;
                 this.lastAttackTime = Date.now();
                 this.attackStartTime = Date.now();
+                this.hasCheckedHit = false;
                 
                 // Notify multiplayer system about attack
                 if (this.game && this.game.multiplayer && !this.isRemotePlayer) {
@@ -1753,7 +1769,9 @@
                     x: this.sword.rotation.x || 0,
                     y: this.sword.rotation.y || 0,
                     z: this.sword.rotation.z || 0,
-                    posZ: this.sword.position.z || 0
+                    posZ: this.sword.position.z || 0,
+                    posX: this.sword.position.x || 0,
+                    posY: this.sword.position.y || 0
                 };
                 
                 // Position the sword for first-person view if needed
@@ -1782,6 +1800,228 @@
                 if (this.swordStats && this.swordStats.special) {
                     console.log(`Special effect activated: ${this.swordStats.special}`);
                 }
+            }
+        }
+        
+        /**
+         * Check for hits against other players during an attack
+         */
+        checkAttackHits() {
+            // Skip if this is not a local player
+            if (this.isRemotePlayer || !this.game || !this.game.multiplayer) {
+                return;
+            }
+            
+            // Get the hit range for our sword
+            let hitRange = 2.5; // Default range
+            
+            // Adjust range based on sword type if stats are available
+            if (this.swordStats && typeof this.swordStats.range === 'number') {
+                hitRange = this.swordStats.range;
+            }
+            
+            // Get list of hit players
+            const hitPlayers = [];
+            
+            // Visualize the attack range with a temporary cone indicator
+            this.visualizeAttackRange(hitRange);
+            
+            // Check for all remote players
+            for (const playerId in this.game.multiplayer.remotePlayers) {
+                const remotePlayer = this.game.multiplayer.remotePlayers[playerId];
+                
+                // Skip if player has no mesh
+                if (!remotePlayer.mesh) continue;
+                
+                // Get target position
+                const targetPos = remotePlayer.mesh.position;
+                const myPos = this.mesh.position;
+                
+                // Calculate distance
+                const distance = Math.sqrt(
+                    Math.pow(targetPos.x - myPos.x, 2) +
+                    Math.pow(targetPos.z - myPos.z, 2)
+                );
+                
+                // Check if within hit range
+                if (distance <= hitRange) {
+                    // Now check if target is in front of player (in attack direction)
+                    const directionVector = {
+                        x: Math.sin(this.rotation),
+                        z: Math.cos(this.rotation)
+                    };
+                    
+                    // Calculate vector to target
+                    const toTargetVector = {
+                        x: targetPos.x - myPos.x,
+                        z: targetPos.z - myPos.z
+                    };
+                    
+                    // Normalize to target vector
+                    const targetDistance = Math.sqrt(
+                        toTargetVector.x * toTargetVector.x + 
+                        toTargetVector.z * toTargetVector.z
+                    );
+                    
+                    if (targetDistance > 0) {
+                        toTargetVector.x /= targetDistance;
+                        toTargetVector.z /= targetDistance;
+                    }
+                    
+                    // Calculate dot product to determine if target is in front
+                    const dotProduct = 
+                        directionVector.x * toTargetVector.x + 
+                        directionVector.z * toTargetVector.z;
+                    
+                    // If dot product is positive, target is in front (within a 180-degree arc)
+                    // Use a threshold to create a narrower arc for more precise targeting
+                    const angleThreshold = 0.5; // Roughly 60-degree arc
+                    
+                    if (dotProduct > angleThreshold) {
+                        // Target is within hit range and in front of player
+                        hitPlayers.push(playerId);
+                        console.log(`Hit player ${playerId} at distance ${distance.toFixed(2)}`);
+                    }
+                }
+            }
+            
+            // If we hit any players, send attack data to server
+            if (hitPlayers.length > 0) {
+                // Calculate damage
+                const damage = this.attackPower + (this.swordStats ? this.swordStats.damage : 0);
+                
+                // Create attack data with hit players
+                const attackData = {
+                    position: {
+                        x: this.position.x,
+                        y: this.position.y,
+                        z: this.position.z
+                    },
+                    direction: {
+                        x: Math.sin(this.rotation),
+                        y: 0,
+                        z: Math.cos(this.rotation)
+                    },
+                    swordType: this.swordType,
+                    damage: damage,
+                    hitPlayers: hitPlayers
+                };
+                
+                // Send attack data to server
+                this.game.multiplayer.sendAttack(attackData);
+                
+                // Show hit confirmation
+                this.showHitConfirmation();
+            }
+        }
+        
+        /**
+         * Create a visual indicator for the attack range
+         */
+        visualizeAttackRange(range) {
+            // Skip if not in debug mode
+            if (!window.DEBUG_VISUALIZE_ATTACKS) return;
+            
+            // Create a temporary cone to visualize attack range
+            const geometry = new THREE.ConeGeometry(range, range * 2, 16);
+            const material = new THREE.MeshBasicMaterial({
+                color: 0xff0000,
+                transparent: true,
+                opacity: 0.3
+            });
+            
+            const cone = new THREE.Mesh(geometry, material);
+            
+            // Position at player's position
+            cone.position.copy(this.mesh.position);
+            cone.position.y = 1;
+            
+            // Rotate to match player's rotation
+            cone.rotation.y = this.rotation;
+            
+            // Rotate so the cone points forward
+            cone.rotation.x = Math.PI / 2;
+            
+            // Add to scene
+            this.game.scene.add(cone);
+            
+            // Remove after a short delay
+            setTimeout(() => {
+                this.game.scene.remove(cone);
+            }, 200);
+        }
+        
+        /**
+         * Show a hit confirmation when successfully hitting a player
+         */
+        showHitConfirmation() {
+            // Create a hit confirmation element
+            const hitConfirm = document.createElement('div');
+            hitConfirm.className = 'hit-confirmation';
+            hitConfirm.textContent = 'HIT!';
+            hitConfirm.style.position = 'absolute';
+            hitConfirm.style.top = '50%';
+            hitConfirm.style.left = '50%';
+            hitConfirm.style.transform = 'translate(-50%, -50%)';
+            hitConfirm.style.color = '#ff0000';
+            hitConfirm.style.fontSize = '32px';
+            hitConfirm.style.fontWeight = 'bold';
+            hitConfirm.style.textShadow = '0 0 5px rgba(0,0,0,0.5)';
+            hitConfirm.style.opacity = '1';
+            hitConfirm.style.transition = 'opacity 0.5s';
+            hitConfirm.style.zIndex = '1000';
+            
+            // Add to DOM
+            document.body.appendChild(hitConfirm);
+            
+            // Fade out and remove
+            setTimeout(() => {
+                hitConfirm.style.opacity = '0';
+                setTimeout(() => {
+                    document.body.removeChild(hitConfirm);
+                }, 500);
+            }, 300);
+        }
+        
+        takeDamage(amount, attackerId) {
+            // Reduce health
+            this.health = Math.max(0, this.health - amount);
+            
+            // Update health bar
+            document.getElementById('health').style.width = `${this.health/120*100}%`;
+            document.getElementById('game-state').textContent = `HP: ${this.health}`;
+            
+            // Flash screen red to indicate damage
+            const damageFlash = document.createElement('div');
+            damageFlash.style.position = 'absolute';
+            damageFlash.style.top = '0';
+            damageFlash.style.left = '0';
+            damageFlash.style.width = '100%';
+            damageFlash.style.height = '100%';
+            damageFlash.style.backgroundColor = 'rgba(255,0,0,0.3)';
+            damageFlash.style.pointerEvents = 'none';
+            damageFlash.style.zIndex = '1000';
+            damageFlash.style.opacity = '1';
+            damageFlash.style.transition = 'opacity 0.5s';
+            document.body.appendChild(damageFlash);
+            
+            // Fade out and remove
+            setTimeout(() => {
+                damageFlash.style.opacity = '0';
+                setTimeout(() => {
+                    document.body.removeChild(damageFlash);
+                }, 500);
+            }, 100);
+            
+            // Play hit sound
+            const hitSound = new Audio('hit.mp3');
+            hitSound.volume = 0.3;
+            hitSound.play().catch(e => console.log('Error playing hit sound:', e));
+            
+            // Check if player was defeated
+            if (this.health <= 0) {
+                console.log(`Player defeated by ${attackerId}`);
+                this.showRespawnUI();
             }
         }
         
@@ -1992,43 +2232,6 @@
             // Notify server about respawn
             if (this.game && this.game.multiplayer) {
                 this.game.multiplayer.sendRespawn(this.position);
-            }
-        }
-        
-        takeDamage(amount, attackerId) {
-            if (this.isBlocking) {
-                amount = Math.floor(amount / 2); // Half damage when blocking
-            }
-            
-            this.health -= amount;
-            
-            // Update health bar if it's the local player
-            if (!this.isRemotePlayer) {
-                document.getElementById('health').style.width = `${this.health}%`;
-                document.getElementById('game-state').textContent = `HP: ${this.health}`;
-            }
-            
-            if (this.health <= 0) {
-                this.health = 0;
-                console.log(`${this.type} has been defeated!`);
-                
-                // Handle defeat in multiplayer
-                if (!this.isRemotePlayer && this.game && this.game.multiplayer) {
-                    // If this is the local player, show defeat screen
-                    this.game.multiplayer.handlePlayerDefeat({ id: this.game.multiplayer.socket.id });
-                }
-            }
-            
-            // If this damage was caused by another player, notify the server
-            if (!this.isRemotePlayer && attackerId && this.game.multiplayer) {
-                this.game.multiplayer.sendDamage(attackerId, amount);
-            }
-            
-            // If player health is zero, show respawn UI after a delay
-            if (this.health <= 0 && !this.isRemotePlayer) {
-                setTimeout(() => {
-                    this.showRespawnUI();
-                }, 2000);
             }
         }
     }

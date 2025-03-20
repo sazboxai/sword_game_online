@@ -643,7 +643,11 @@ io.on('connection', (socket) => {
     // Handle player attacks
     socket.on('playerAttack', (data) => {
         try {
-            console.log(`[EVENT] Player ${socket.id} attacked with data:`, data);
+            console.log(`\n[ATTACK] Player ${socket.id} attacked`, {
+                position: data?.position,
+                direction: data?.direction,
+                swordType: data?.swordType
+            });
             
             // Get current player data from the players object
             const currentPlayerData = players[socket.id] || {};
@@ -666,16 +670,137 @@ io.on('connection', (socket) => {
                 console.log(`[SERVER] Player ${socket.id} switched sword to ${attackData.swordType}`);
             }
             
-            // Log attack details for debugging
-            console.log(`[SERVER] Player ${socket.id} attacked with ${attackData.swordType} sword`);
+            // If the client didn't supply hit players, calculate them server-side
+            if (attackData.hitPlayers.length === 0) {
+                console.log(`[ATTACK] No hit players provided by client, calculating server-side`);
+                
+                // Get the effective hit range based on the sword type
+                const hitRange = getSwordHitRange(attackData.swordType);
+                console.log(`[ATTACK] Sword type: ${attackData.swordType}, Hit range: ${hitRange}`);
+                
+                // Check for all players within range
+                for (const targetId in players) {
+                    // Skip attacker
+                    if (targetId === socket.id) continue;
+                    
+                    // Skip players who aren't fully registered
+                    if (!players[targetId] || !players[targetId].fullyRegistered) continue;
+                    
+                    // Get target player position
+                    const targetPos = players[targetId].position;
+                    const attackerPos = attackData.position;
+                    
+                    // Calculate distance
+                    const dx = targetPos.x - attackerPos.x;
+                    const dz = targetPos.z - attackerPos.z;
+                    const distance = Math.sqrt(dx * dx + dz * dz);
+                    
+                    console.log(`[ATTACK] Distance to player ${targetId}: ${distance.toFixed(2)} units (hit range: ${hitRange})`);
+                    
+                    // Check if within hit range
+                    if (distance <= hitRange) {
+                        // Check if target is in the direction of the attack
+                        const attackDirection = attackData.direction;
+                        
+                        // Normalize direction vectors
+                        const dirMagnitude = Math.sqrt(attackDirection.x * attackDirection.x + attackDirection.z * attackDirection.z);
+                        const normalizedDirection = {
+                            x: attackDirection.x / dirMagnitude,
+                            z: attackDirection.z / dirMagnitude
+                        };
+                        
+                        // Calculate vector to target
+                        const toTarget = {
+                            x: dx,
+                            z: dz
+                        };
+                        
+                        // Normalize to target vector
+                        const targetMagnitude = Math.sqrt(toTarget.x * toTarget.x + toTarget.z * toTarget.z);
+                        if (targetMagnitude > 0) {
+                            toTarget.x /= targetMagnitude;
+                            toTarget.z /= targetMagnitude;
+                        }
+                        
+                        // Calculate dot product
+                        const dotProduct = normalizedDirection.x * toTarget.x + normalizedDirection.z * toTarget.z;
+                        
+                        console.log(`[ATTACK] Dot product with player ${targetId}: ${dotProduct.toFixed(2)}`);
+                        
+                        // Use a more permissive angle threshold for better hit detection
+                        // A dot product of 0.3 corresponds to roughly a 70-degree arc
+                        if (dotProduct > 0.3) {
+                            attackData.hitPlayers.push(targetId);
+                            console.log(`[ATTACK] Player ${socket.id} hit player ${targetId} with ${attackData.swordType}!`);
+                        } else {
+                            console.log(`[ATTACK] Player ${targetId} in range but not in attack direction`);
+                        }
+                    }
+                }
+            }
+            
+            // Process damage for hit players
             if (attackData.hitPlayers.length > 0) {
-                console.log(`[SERVER] Attack hit players: ${attackData.hitPlayers.join(', ')}`);
+                console.log(`[ATTACK] Hit players: ${attackData.hitPlayers.join(', ')}`);
+                
+                // Apply damage to each hit player
+                attackData.hitPlayers.forEach(targetId => {
+                    if (players[targetId]) {
+                        // Calculate damage based on various factors
+                        let damage = attackData.damage;
+                        
+                        // Reduce damage based on distance (if we had position data)
+                        if (data.position && players[targetId].position) {
+                            const dx = players[targetId].position.x - data.position.x;
+                            const dz = players[targetId].position.z - data.position.z;
+                            const distance = Math.sqrt(dx * dx + dz * dz);
+                            
+                            // Damage falloff at range (example: 20% less damage at max range)
+                            const hitRange = getSwordHitRange(attackData.swordType);
+                            const rangeFactor = 1 - (0.2 * (distance / hitRange));
+                            damage = Math.floor(damage * rangeFactor);
+                        }
+                        
+                        // Store the previous health for logging
+                        const previousHealth = players[targetId].health;
+                        
+                        // Apply damage
+                        players[targetId].health = Math.max(0, players[targetId].health - damage);
+                        
+                        console.log(`[ATTACK] Player ${targetId} took ${damage} damage, health reduced from ${previousHealth} to ${players[targetId].health}`);
+                        
+                        // Notify the hit player about damage taken
+                        io.to(targetId).emit('playerDamaged', {
+                            id: targetId,
+                            attackerId: socket.id,
+                            amount: damage,
+                            swordType: attackData.swordType,
+                            health: players[targetId].health
+                        });
+                        
+                        // Check if player was defeated
+                        if (players[targetId].health <= 0) {
+                            console.log(`[ATTACK] Player ${targetId} was defeated by ${socket.id}!`);
+                            
+                            // Notify all clients about the defeat
+                            io.emit('playerDefeated', {
+                                id: targetId,
+                                attackerId: socket.id
+                            });
+                        }
+                    }
+                });
+            } else {
+                console.log(`[ATTACK] No players were hit by this attack`);
             }
             
             // Broadcast attack to all other players
+            console.log(`[ATTACK] Broadcasting attack to all players`);
             socket.broadcast.emit('playerAttacked', attackData);
+            
         } catch (error) {
             console.error(`[ERROR] Error handling player attack: ${error.message}`);
+            console.error(error.stack);
         }
     });
     
@@ -689,6 +814,19 @@ io.on('connection', (socket) => {
             case 'rapier': return 12;
             case 'dualdaggers': return 8;
             default: return 10; // Default damage
+        }
+    }
+    
+    // Helper function to get sword hit range based on type
+    function getSwordHitRange(swordType) {
+        switch(swordType) {
+            case 'broadsword': return 2.5;
+            case 'katana': return 2.8;
+            case 'ninjato': return 2.0;
+            case 'greatsword': return 3.2;
+            case 'rapier': return 3.0;
+            case 'dualdaggers': return 1.8;
+            default: return 2.5; // Default range
         }
     }
     
