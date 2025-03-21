@@ -2057,55 +2057,39 @@
         }
         
         takeDamage(amount, attackerId) {
-            console.log(`TAKING DAMAGE: ${amount} from player ${attackerId}`);
+            // Calculate damage reduction if blocking
+            if (this.isBlocking) {
+                amount = Math.max(1, Math.floor(amount * 0.3)); // Blocking reduces damage by 70%
+                console.log(`Damage reduced to ${amount} due to blocking`);
+            }
             
-            // Reduce health
+            // Apply damage
             this.health = Math.max(0, this.health - amount);
             
-            // Update health bar
-            document.getElementById('health').style.width = `${this.health/120*100}%`;
-            document.getElementById('game-state').textContent = `HP: ${this.health}`;
+            // Update health bar for local player
+            if (!this.isRemotePlayer) {
+                document.getElementById('health').style.width = `${this.health}%`;
+                document.getElementById('game-state').textContent = `HP: ${this.health}`;
+            }
             
-            // Add text notification of damage taken
-            const damageText = document.createElement('div');
-            damageText.textContent = `-${amount} HP`;
-            damageText.style.position = 'absolute';
-            damageText.style.top = '30%';
-            damageText.style.left = '50%';
-            damageText.style.transform = 'translate(-50%, -50%)';
-            damageText.style.color = '#FF0000';
-            damageText.style.fontSize = '48px';
-            damageText.style.fontWeight = 'bold';
-            damageText.style.textShadow = '2px 2px 4px #000000';
-            damageText.style.zIndex = '1001';
-            damageText.style.opacity = '1';
-            damageText.style.transition = 'opacity 1s, transform 1s';
-            document.body.appendChild(damageText);
+            console.log(`Took ${amount} damage from ${attackerId}, health: ${this.health}`);
             
-            // Animate the damage text
-            setTimeout(() => {
-                damageText.style.opacity = '0';
-                damageText.style.transform = 'translate(-50%, -150%)';
-                setTimeout(() => {
-                    document.body.removeChild(damageText);
-                }, 1000);
-            }, 500);
-            
-            // Flash screen red to indicate damage
+            // Create red flash effect to indicate damage
             const damageFlash = document.createElement('div');
-            damageFlash.style.position = 'fixed';
+            document.body.appendChild(damageFlash);
+            
+            // Style the damage flash
+            damageFlash.style.position = 'absolute';
             damageFlash.style.top = '0';
             damageFlash.style.left = '0';
             damageFlash.style.width = '100%';
             damageFlash.style.height = '100%';
-            damageFlash.style.backgroundColor = 'rgba(255,0,0,0.4)'; // More opaque
-            damageFlash.style.pointerEvents = 'none';
+            damageFlash.style.backgroundColor = 'rgba(255, 0, 0, 0.3)';
             damageFlash.style.zIndex = '1000';
-            damageFlash.style.opacity = '1';
+            damageFlash.style.pointerEvents = 'none';
             damageFlash.style.transition = 'opacity 0.5s';
-            document.body.appendChild(damageFlash);
             
-            // Fade out and remove
+            // Flash and fade out
             setTimeout(() => {
                 damageFlash.style.opacity = '0';
                 setTimeout(() => {
@@ -2130,6 +2114,18 @@
             // Check if player was defeated
             if (this.health <= 0) {
                 console.log(`Player defeated by ${attackerId}`);
+                
+                // Hide the character mesh
+                this.mesh.visible = false;
+                
+                // Update score if the attacker ID is available
+                if (attackerId && this.game && this.game.multiplayer) {
+                    // Decrease our score for being killed
+                    if (!this.game.playerScore) this.game.playerScore = 0;
+                    this.game.playerScore -= 1;
+                    this.updateScoreDisplay();
+                }
+                
                 this.showRespawnUI();
                 
                 // Notify server of defeat
@@ -2327,6 +2323,9 @@
             this.health = 100;
             this.stamina = this.maxStamina;
             
+            // Make character visible again
+            this.mesh.visible = true;
+            
             // Update health bar
             document.getElementById('health').style.width = `${this.health}%`;
             document.getElementById('game-state').textContent = `HP: ${this.health}`;
@@ -2349,6 +2348,32 @@
             if (this.game && this.game.multiplayer) {
                 this.game.multiplayer.sendRespawn(this.position);
             }
+        }
+        
+        /**
+         * Update the score display in the UI
+         */
+        updateScoreDisplay() {
+            // Create or update score display
+            let scoreDisplay = document.getElementById('score-display');
+            if (!scoreDisplay) {
+                scoreDisplay = document.createElement('div');
+                scoreDisplay.id = 'score-display';
+                scoreDisplay.style.position = 'absolute';
+                scoreDisplay.style.top = '10px';
+                scoreDisplay.style.right = '10px';
+                scoreDisplay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+                scoreDisplay.style.color = 'white';
+                scoreDisplay.style.padding = '5px 10px';
+                scoreDisplay.style.borderRadius = '5px';
+                scoreDisplay.style.fontSize = '18px';
+                scoreDisplay.style.fontFamily = 'Arial, sans-serif';
+                scoreDisplay.style.zIndex = '100';
+                document.body.appendChild(scoreDisplay);
+            }
+            
+            // Update score text
+            scoreDisplay.textContent = `Score: ${this.game.playerScore || 0}`;
         }
     }
     

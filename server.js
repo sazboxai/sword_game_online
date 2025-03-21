@@ -827,13 +827,13 @@ io.on('connection', (socket) => {
     // Helper function to calculate damage based on sword type
     function calculateDamageFromSwordType(swordType) {
         switch(swordType) {
-            case 'broadsword': return 15;
-            case 'katana': return 12;
-            case 'ninjato': return 10;
-            case 'greatsword': return 20;
-            case 'rapier': return 12;
-            case 'dualdaggers': return 8;
-            default: return 10; // Default damage
+            case 'broadsword': return Math.round(15 * 0.7); // Reduced by 30%
+            case 'katana': return Math.round(12 * 0.7); // Reduced by 30%
+            case 'ninjato': return Math.round(10 * 0.7); // Reduced by 30%
+            case 'greatsword': return Math.round(20 * 0.7); // Reduced by 30%
+            case 'rapier': return Math.round(12 * 0.7); // Reduced by 30%
+            case 'dualdaggers': return Math.round(8 * 0.7); // Reduced by 30%
+            default: return Math.round(10 * 0.7); // Default damage reduced by 30%
         }
     }
     
@@ -1026,6 +1026,24 @@ io.on('connection', (socket) => {
             players: Object.keys(players).filter(id => players[id].fullyRegistered),
             timestamp: Date.now()
         });
+    });
+
+    // Handle player being defeated directly (client-side detection)
+    socket.on('playerDefeated', (data) => {
+        const { defeatedBy } = data;
+        
+        if (players[socket.id]) {
+            // Mark player as defeated
+            players[socket.id].health = 0;
+            
+            console.log(`[SERVER] Player ${socket.id} was defeated by ${defeatedBy}`);
+            
+            // Broadcast the defeat to all players with the attacker ID
+            io.emit('playerDefeated', {
+                id: socket.id,
+                attackerId: defeatedBy
+            });
+        }
     });
 });
 

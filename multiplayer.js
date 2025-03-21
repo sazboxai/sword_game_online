@@ -879,6 +879,31 @@ class MultiplayerManager {
             }
         });
         
+        // Player defeated (killed)
+        this.socket.on('playerDefeated', (data) => {
+            this.log(`Player ${data.id} was defeated by ${data.attackerId}`);
+            
+            // If this is a remote player, make them invisible
+            if (this.remotePlayers[data.id]) {
+                this.remotePlayers[data.id].visible = false;
+            }
+            
+            // If we are the attacker who defeated them, increment our score
+            if (data.attackerId === this.socket.id && this.game.playerCharacter) {
+                // Initialize score if needed
+                if (!this.game.playerScore) this.game.playerScore = 0;
+                
+                // Add a point for the kill
+                this.game.playerScore += 1;
+                
+                // Update the score display
+                this.game.playerCharacter.updateScoreDisplay();
+                
+                // Show kill notification
+                this.showKillNotification(data.id);
+            }
+        });
+        
         // Player respawned
         this.socket.on('playerRespawned', (data) => {
             this.log(`Player ${data.id} respawned at position (${data.position.x}, ${data.position.y}, ${data.position.z})`);
@@ -1194,11 +1219,18 @@ class MultiplayerManager {
     /**
      * Sends a respawn event to the server
      */
-    respawnPlayer(position) {
+    sendRespawn(position) {
         if (!this.connected) return;
         
         this.log(`Sending respawn event to server at position (${position.x}, ${position.y}, ${position.z})`);
         this.socket.emit('playerRespawn', { position });
+    }
+    
+    /**
+     * Alias for sendRespawn for backward compatibility
+     */
+    respawnPlayer(position) {
+        this.sendRespawn(position);
     }
     
     /**
@@ -1861,7 +1893,7 @@ class MultiplayerManager {
             
             return swordGroup;
             
-        } catch (error) {
+                    } catch (error) {
             console.error(`Error creating sword`, {
                 error: error.message,
                 playerId
@@ -2357,7 +2389,7 @@ class MultiplayerManager {
                 // Show hit effect
                 this.showHitEffect();
             }
-        } catch (error) {
+                    } catch (error) {
             console.error(`Error handling remote player attack:`, error);
             console.error('Attack data:', data);
             console.error('Stack trace:', error.stack);
@@ -3735,5 +3767,39 @@ class MultiplayerManager {
         
         // Store the interpolation time for use in the interpolation method
         this._interpolationTime = newInterpolationTime;
+    }
+    
+    /**
+     * Show a kill notification on screen
+     */
+    showKillNotification(defeatedPlayerId) {
+        // Get player name if available
+        const playerName = this.remotePlayers[defeatedPlayerId]?.name || defeatedPlayerId;
+        
+        // Create notification element
+        const notification = document.createElement('div');
+        notification.textContent = `You defeated ${playerName}!`;
+        notification.style.position = 'absolute';
+        notification.style.top = '40%';
+        notification.style.left = '50%';
+        notification.style.transform = 'translate(-50%, -50%)';
+        notification.style.backgroundColor = 'rgba(0, 100, 0, 0.7)';
+        notification.style.color = 'white';
+        notification.style.padding = '10px 20px';
+        notification.style.borderRadius = '5px';
+        notification.style.fontSize = '24px';
+        notification.style.fontWeight = 'bold';
+        notification.style.zIndex = '1001';
+        notification.style.opacity = '1';
+        notification.style.transition = 'opacity 0.5s';
+        document.body.appendChild(notification);
+        
+        // Fade out and remove
+        setTimeout(() => {
+            notification.style.opacity = '0';
+            setTimeout(() => {
+                document.body.removeChild(notification);
+            }, 500);
+        }, 2000);
     }
 }
