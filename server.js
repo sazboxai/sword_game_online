@@ -652,6 +652,13 @@ io.on('connection', (socket) => {
             // Get current player data from the players object
             const currentPlayerData = players[socket.id] || {};
             
+            // Check if player is dead - if so, reject the attack
+            if (currentPlayerData.health <= 0) {
+                console.log(`[ATTACK] Attack rejected: Player ${socket.id} is dead and cannot attack`);
+                socket.emit('attackRejected', { reason: 'player_dead' });
+                return;
+            }
+            
             // Check if data is null or undefined and construct attack data with fallbacks
             const attackData = {
                 id: socket.id,

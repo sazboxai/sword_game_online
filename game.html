@@ -567,6 +567,7 @@
             this.lastAttackTime = 0;
             this.availableSwords = []; // List of available sword types
             this.currentSwordIndex = 0;
+            this.isDead = false; // Track if player is dead
             
             // Set stats based on character type
             switch(type) {
@@ -1147,6 +1148,14 @@
         }
         
         update(delta) {
+            // Skip update if dead
+            if (this.isDead) {
+                // Reset velocity to prevent movement while dead
+                this.velocity.x = 0;
+                this.velocity.z = 0;
+                return;
+            }
+            
             // ------------- FIRST-PERSON MOVEMENT SYSTEM -------------
             // Get camera direction vectors from Game class
             let forward, right;
@@ -1736,104 +1745,107 @@
         }
         
         attack() {
-            if (!this.isAttacking && !this.isBlocking) {
-                this.isAttacking = true;
-                this.lastAttackTime = Date.now();
-                this.attackStartTime = Date.now();
-                this.hasCheckedHit = false;
-                
-                // Notify multiplayer system about attack
-                if (this.game && this.game.multiplayer && !this.isRemotePlayer) {
-                    // Create attack data object with all required information
-                    const attackData = {
-                        position: {
-                            x: this.position.x,
-                            y: this.position.y,
-                            z: this.position.z
-                        },
-                        direction: {
-                            x: Math.sin(this.rotation),
-                            y: 0,
-                            z: Math.cos(this.rotation)
-                        },
-                        swordType: this.swordType,
-                        damage: this.attackPower + (this.swordStats ? this.swordStats.damage : 0),
-                        hitPlayers: [] // Will be calculated by the server
-                    };
-                    
-                    // Send the attack data to the multiplayer system
-                    this.game.multiplayer.sendAttack(attackData);
-                }
-                
-                // Calculate stamina cost based on weapon damage
-                let attackStaminaCost = this.attackStaminaCost; // Base stamina cost
-                
-                // Add bonus stamina cost based on weapon damage
-                if (this.swordStats && this.swordStats.damage) {
-                    // Scale stamina cost based on weapon damage
-                    // Higher damage weapons consume more stamina
-                    const weaponDamageFactor = this.swordStats.damage / 10; // Normalize to factor
-                    const weaponStaminaCost = Math.round(attackStaminaCost * weaponDamageFactor);
-                    
-                    // Total stamina cost = base cost + weapon-specific cost
-                    attackStaminaCost += weaponStaminaCost;
-                    
-                    console.log(`Weapon stamina cost: ${weaponStaminaCost}, Total: ${attackStaminaCost}`);
-                }
-                
-                // Store the cost for reference and logging
-                this.staminaCostForLastAttack = attackStaminaCost;
-                
-                // Apply the stamina cost
-                this.stamina = Math.max(0, this.stamina - attackStaminaCost);
-                
-                // Update UI to show stamina consumption
-                const staminaBar = document.getElementById('stamina-bar');
-                if (staminaBar) {
-                    staminaBar.style.width = `${(this.stamina / this.maxStamina) * 100}%`;
-                }
-                
-                // Add stamina depletion check for attacking
-                if (this.stamina <= 5) {
-                    this.staminaDepleted = true;
-                }
-                
-                // Save original sword position for resetting after animation
-                this.originalSwordRotation = {
-                    x: this.sword.rotation.x || 0,
-                    y: this.sword.rotation.y || 0,
-                    z: this.sword.rotation.z || 0,
-                    posZ: this.sword.position.z || 0,
-                    posX: this.sword.position.x || 0,
-                    posY: this.sword.position.y || 0
+            // Don't allow attacking if dead or already attacking or blocking
+            if (this.isDead || this.isAttacking || this.isBlocking) {
+                return;
+            }
+            
+            this.isAttacking = true;
+            this.lastAttackTime = Date.now();
+            this.attackStartTime = Date.now();
+            this.hasCheckedHit = false;
+            
+            // Notify multiplayer system about attack
+            if (this.game && this.game.multiplayer && !this.isRemotePlayer) {
+                // Create attack data object with all required information
+                const attackData = {
+                    position: {
+                        x: this.position.x,
+                        y: this.position.y,
+                        z: this.position.z
+                    },
+                    direction: {
+                        x: Math.sin(this.rotation),
+                        y: 0,
+                        z: Math.cos(this.rotation)
+                    },
+                    swordType: this.swordType,
+                    damage: this.attackPower + (this.swordStats ? this.swordStats.damage : 0),
+                    hitPlayers: [] // Will be calculated by the server
                 };
                 
-                // Position the sword for first-person view if needed
-                if (this.game.isFirstPerson) {
-                    // Move sword to be visible in first-person view during attack
-                    // Always update the position to ensure visibility
-                    this.sword.position.set(0.5, -0.3, -0.5); // Position in front of camera
-                    this.sword.rotation.y = Math.PI / 4; // Angle for natural holding position
-                    this.swordPositionedForFP = true;
-                }
+                // Send the attack data to the multiplayer system
+                this.game.multiplayer.sendAttack(attackData);
+            }
+            
+            // Calculate stamina cost based on weapon damage
+            let attackStaminaCost = this.attackStaminaCost; // Base stamina cost
+            
+            // Add bonus stamina cost based on weapon damage
+            if (this.swordStats && this.swordStats.damage) {
+                // Scale stamina cost based on weapon damage
+                // Higher damage weapons consume more stamina
+                const weaponDamageFactor = this.swordStats.damage / 10; // Normalize to factor
+                const weaponStaminaCost = Math.round(attackStaminaCost * weaponDamageFactor);
                 
-                // Add a slight randomness to sword swing for more natural feel
-                if (this.sword) {
-                    const randomAngle = (Math.random() - 0.5) * 0.1;
-                    this.sword.rotation.y += randomAngle;
-                }
+                // Total stamina cost = base cost + weapon-specific cost
+                attackStaminaCost += weaponStaminaCost;
                 
-                // Apply sword stats to attack
-                const totalDamage = this.attackPower + (this.sword ? this.swordStats.damage : 0);
-                
-                // Show damage and stamina cost
-                console.log(`${this.type} attacks with ${this.swordType} for ${totalDamage} damage!`);
-                console.log(`Weapon: ${this.swordType}, Damage: ${this.swordStats.damage}, Stamina Cost: ${this.staminaCostForLastAttack}`);
-                
-                // Special effects based on sword type
-                if (this.swordStats && this.swordStats.special) {
-                    console.log(`Special effect activated: ${this.swordStats.special}`);
-                }
+                console.log(`Weapon stamina cost: ${weaponStaminaCost}, Total: ${attackStaminaCost}`);
+            }
+            
+            // Store the cost for reference and logging
+            this.staminaCostForLastAttack = attackStaminaCost;
+            
+            // Apply the stamina cost
+            this.stamina = Math.max(0, this.stamina - attackStaminaCost);
+            
+            // Update UI to show stamina consumption
+            const staminaBar = document.getElementById('stamina-bar');
+            if (staminaBar) {
+                staminaBar.style.width = `${(this.stamina / this.maxStamina) * 100}%`;
+            }
+            
+            // Add stamina depletion check for attacking
+            if (this.stamina <= 5) {
+                this.staminaDepleted = true;
+            }
+            
+            // Save original sword position for resetting after animation
+            this.originalSwordRotation = {
+                x: this.sword.rotation.x || 0,
+                y: this.sword.rotation.y || 0,
+                z: this.sword.rotation.z || 0,
+                posZ: this.sword.position.z || 0,
+                posX: this.sword.position.x || 0,
+                posY: this.sword.position.y || 0
+            };
+            
+            // Position the sword for first-person view if needed
+            if (this.game.isFirstPerson) {
+                // Move sword to be visible in first-person view during attack
+                // Always update the position to ensure visibility
+                this.sword.position.set(0.5, -0.3, -0.5); // Position in front of camera
+                this.sword.rotation.y = Math.PI / 4; // Angle for natural holding position
+                this.swordPositionedForFP = true;
+            }
+            
+            // Add a slight randomness to sword swing for more natural feel
+            if (this.sword) {
+                const randomAngle = (Math.random() - 0.5) * 0.1;
+                this.sword.rotation.y += randomAngle;
+            }
+            
+            // Apply sword stats to attack
+            const totalDamage = this.attackPower + (this.sword ? this.swordStats.damage : 0);
+            
+            // Show damage and stamina cost
+            console.log(`${this.type} attacks with ${this.swordType} for ${totalDamage} damage!`);
+            console.log(`Weapon: ${this.swordType}, Damage: ${this.swordStats.damage}, Stamina Cost: ${this.staminaCostForLastAttack}`);
+            
+            // Special effects based on sword type
+            if (this.swordStats && this.swordStats.special) {
+                console.log(`Special effect activated: ${this.swordStats.special}`);
             }
         }
         
@@ -1841,8 +1853,8 @@
          * Check for hits against other players during an attack
          */
         checkAttackHits() {
-            // Skip if this is not a local player
-            if (this.isRemotePlayer || !this.game || !this.game.multiplayer) {
+            // Skip if this is not a local player or if dead
+            if (this.isRemotePlayer || !this.game || !this.game.multiplayer || this.isDead) {
                 return;
             }
             
@@ -2115,6 +2127,15 @@
             if (this.health <= 0) {
                 console.log(`Player defeated by ${attackerId}`);
                 
+                // Mark as dead
+                this.isDead = true;
+                
+                // Reset all movement and action states
+                this.isAttacking = false;
+                this.isBlocking = false;
+                this.velocity.x = 0;
+                this.velocity.z = 0;
+                
                 // Hide the character mesh
                 this.mesh.visible = false;
                 
@@ -2322,6 +2343,9 @@
             // Reset health and stamina
             this.health = 100;
             this.stamina = this.maxStamina;
+            
+            // Reset dead state
+            this.isDead = false;
             
             // Make character visible again
             this.mesh.visible = true;

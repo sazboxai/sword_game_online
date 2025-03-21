@@ -765,6 +765,24 @@ class MultiplayerManager {
             this.updatePlayerCount();
         });
         
+        // Attack rejected
+        this.socket.on('attackRejected', (data) => {
+            this.log(`Attack rejected: ${data.reason}`);
+            
+            // If the player is dead, ensure they can't attack until respawn
+            if (data.reason === 'player_dead' && this.game.playerCharacter) {
+                this.game.playerCharacter.isAttacking = false;
+                this.game.playerCharacter.isDead = true;
+                
+                console.log('Server rejected attack because player is dead');
+                
+                // If the player isn't already showing the respawn UI, show it
+                if (this.game.playerCharacter.health <= 0 && !document.getElementById('respawn-overlay')) {
+                    this.game.playerCharacter.showRespawnUI();
+                }
+            }
+        });
+        
         // Player updated
         this.socket.on('playerUpdated', (playerData) => {
             // Track network stats for this update
