@@ -1,9 +1,31 @@
+# Node modules and logs
 node_modules
 npm-debug.log
-Dockerfile
-docker-compose.yml
+yarn-error.log
+
+# Git files
 .git
 .gitignore
-.env
+
+# Docker files (not needed inside the container)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Development files
+.vscode
+.idea
 *.md
-!README.md 
+!README.md
+run-docker.sh
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# OS files
+.DS_Store
+Thumbs.db 

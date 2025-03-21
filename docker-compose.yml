@@ -1,10 +1,19 @@
 version: '3'
+
 services:
   game-server:
     build: .
     ports:
       - "8989:8989"
+      - "8990:8990"
+    restart: unless-stopped
     volumes:
-      - .:/usr/src/app
-      - /usr/src/app/node_modules
-    restart: unless-stopped 
+      # Mount for development to see changes without rebuilding
+      # Comment these out for production
+      - ./game.html:/usr/src/app/game.html
+      - ./multiplayer.js:/usr/src/app/multiplayer.js
+      - ./server.js:/usr/src/app/server.js
+    environment:
+      - NODE_ENV=production
+      # Enable this for additional logging
+      # - DEBUG=socket.io:* 

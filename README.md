@@ -34,9 +34,8 @@ A real-time multiplayer 3D sword fighting game with various character types and 
 ├── server.js         # Server-side multiplayer logic
 ├── test-client.html  # Test client for debugging multiplayer
 ├── package.json      # Project dependencies
-├── Dockerfile        # Docker container configuration
-├── docker-compose.yml # Docker Compose configuration for local development
-├── amplify.yml       # AWS Amplify build configuration
+├── Dockerfile        # Docker container definition
+├── docker-compose.yml # Docker Compose configuration
 └── README.md         # Project documentation
 ```
 
@@ -46,7 +45,7 @@ A real-time multiplayer 3D sword fighting game with various character types and 
 - **Backend**: Node.js with Express
 - **Real-time communication**: Socket.io
 - **Multiplayer Architecture**: Client-Server model
-- **Deployment**: Docker containers, AWS Amplify
+- **Containerization**: Docker for easy deployment
 
 ### Multiplayer Synchronization
 
@@ -85,11 +84,11 @@ This approach ensures minimal latency while maintaining game consistency across 
 - Node.js (v14+)
 - NPM (v6+)
 - A modern web browser (Chrome, Firefox, Safari, Edge)
-- Docker (for containerized deployment)
+- Docker (optional, for containerized deployment)
 
 ## Setup and Installation
 
-### Standard Setup
+### Standard Installation
 
 1. Clone the repository:
 ```bash
@@ -109,7 +108,7 @@ npm start
 
 4. Open your browser to `http://localhost:8989`
 
-### Docker Setup
+### Docker Installation
 
 1. Clone the repository:
 ```bash
@@ -117,21 +116,33 @@ git clone https://github.com/yourusername/sword-fighting-game.git
 cd sword-fighting-game
 ```
 
-2. Build and run with Docker Compose:
+2. Build and run using Docker Compose:
 ```bash
-docker-compose up --build
+docker-compose up -d
 ```
 
 3. Open your browser to `http://localhost:8989`
 
-### Production Docker Build
+4. View server logs:
+```bash
+docker-compose logs -f
+```
+
+5. Stop the server:
+```bash
+docker-compose down
+```
+
+#### Manual Docker Build (Alternative)
+
+If you prefer to build and run the Docker container manually:
 
 ```bash
 # Build the Docker image
 docker build -t sword-fighting-game .
 
 # Run the container
-docker run -p 8989:8989 sword-fighting-game
+docker run -p 8989:8989 -p 8990:8990 -d sword-fighting-game
 ```
 
 ## Single-Player Mode
@@ -163,7 +174,7 @@ See `multiplayer_process.txt` for details on how the multiplayer system works.
 
 You can test the multiplayer functionality locally by:
 
-1. Start the server with `npm start` or `docker-compose up`
+1. Start the server with `npm start` or Docker
 2. Open multiple browser windows pointing to `http://localhost:8989`
 3. For debugging, access the test client at `http://localhost:8989/test-client.html`
 
@@ -173,22 +184,6 @@ A diagnostic WebSocket server runs on port 8990 for monitoring:
 - Server status
 - Player connections
 - Game state
-
-## Deployment on AWS Amplify
-
-This game is configured for easy deployment on AWS Amplify:
-
-1. Connect your repository to AWS Amplify
-2. Select "Deploy with existing configuration (amplify.yml)"
-3. No additional configuration is needed - Amplify will use the amplify.yml file
-
-### Environment Variables
-
-The following environment variables can be set in AWS Amplify:
-
-- `PORT`: Port number for the server (default: 8989)
-- `DEBUG`: Set to true for detailed logging
-- `MAX_PLAYERS`: Maximum number of concurrent players (default: 50)
 
 ## Building with AI Assistance
 

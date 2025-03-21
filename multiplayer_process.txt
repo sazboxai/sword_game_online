@@ -280,148 +280,6 @@ Our system is designed to recover gracefully from network issues:
    - Critical events (like combat) trigger immediate state verification
    - Server acts as final arbiter for resolving conflicts
 
-## Containerization and Cloud Deployment
-
-Deploying multiplayer games requires reliable infrastructure. We've containerized our game using Docker and configured it for AWS Amplify deployment.
-
-### Docker Containerization
-
-Docker provides a consistent environment for running the game server:
-
-```dockerfile
-FROM node:18-alpine
-
-# Create app directory
-WORKDIR /usr/src/app
-
-# Install app dependencies
-COPY package*.json ./
-RUN npm install
-
-# Bundle app source
-COPY . .
-
-# Expose ports
-EXPOSE 8989
-
-# Run the server
-CMD ["node", "server.js"]
-```
-
-This approach offers several advantages:
-
-1. **Consistency**: Eliminates "works on my machine" problems
-2. **Isolation**: Application dependencies are bundled in the container
-3. **Scalability**: Easily deploy multiple instances for higher player counts
-4. **Portability**: Run the same container in development, staging, and production
-
-### Network Configuration for Containers
-
-When containerizing a multiplayer game, we need to make specific adjustments:
-
-1. **Binding to All Interfaces**: 
-   The server must bind to `0.0.0.0` instead of `localhost`:
-
-   ```javascript
-   // In server.js
-   server.listen(PORT, '0.0.0.0', () => {
-     console.log(`Server is running on port ${PORT}`);
-   });
-   ```
-
-2. **Port Exposure**:
-   We must explicitly expose the server port:
-
-   ```
-   # In Dockerfile
-   EXPOSE 8989
-   ```
-
-   ```yaml
-   # In docker-compose.yml
-   ports:
-     - "8989:8989"
-   ```
-
-3. **Environment Variables**:
-   Use environment variables for configuration:
-
-   ```javascript
-   // In server.js
-   const PORT = process.env.PORT || 8989;
-   const MAX_PLAYERS = process.env.MAX_PLAYERS || 50;
-   ```
-
-### AWS Amplify Deployment
-
-AWS Amplify streamlines the deployment process:
-
-1. **Configuration File**:
-   The `amplify.yml` file defines build and deployment steps:
-
-   ```yaml
-   version: 1
-   applications:
-     - frontend:
-         phases:
-           preBuild:
-             commands:
-               - echo "No frontend build steps needed"
-         artifacts:
-           baseDirectory: .
-           files:
-             - '**/*'
-       backend:
-         phases:
-           build:
-             commands:
-               - npm install
-         artifacts:
-           baseDirectory: .
-           files:
-             - '**/*'
-   ```
-
-2. **Deployment Process**:
-   - Connect your Git repository to AWS Amplify
-   - Amplify automatically detects the configuration file
-   - Each commit to your main branch triggers a new deployment
-
-3. **Scaling Considerations**:
-   - Set up a load balancer for multiple instances
-   - Use WebSocket-friendly configurations 
-   - Configure auto-scaling based on player count
-
-### Handling Environment-Specific Configuration
-
-Different deployment environments may require different configurations:
-
-```javascript
-// Environment-aware configuration
-const config = {
-  development: {
-    logLevel: 'debug',
-    updateFrequency: 50,
-    interpolationPeriod: 100
-  },
-  production: {
-    logLevel: 'error',
-    updateFrequency: 100,  // Less frequent updates to reduce server load
-    interpolationPeriod: 150  // Smoother interpolation for network variability
-  }
-};
-
-// Use environment-specific settings
-const env = process.env.NODE_ENV || 'development';
-const settings = config[env];
-
-// Apply settings
-setLogLevel(settings.logLevel);
-setUpdateFrequency(settings.updateFrequency);
-```
-
-This approach allows optimizing the game's performance based on the deployment environment.
-
 ## What Happens Behind the Scenes
 
 1. When a player moves:
@@ -460,12 +318,6 @@ This approach allows optimizing the game's performance based on the deployment e
    - Only sending updates when things change
    - Limiting update frequency
    - Only sending data to players who need it
-
-4. **Deployment Challenges**: Hosting multiplayer games introduces additional concerns:
-   - Container orchestration for scaling
-   - WebSocket connection persistence
-   - State management across server instances
-   - Region-based game server allocation
 
 ## Building Multiplayer Games with LLM Assistance
 
@@ -586,23 +438,6 @@ Creating a multiplayer game with the help of an LLM (Large Language Model) like 
    - Latency simulation testing
    - Edge case identification and fixes
 
-#### Phase 6: Containerization and Deployment (Day 6)
-
-1. **Docker Setup**:
-   - Create Dockerfile for the application
-   - Set up docker-compose for local development
-   - Configure container networking
-
-2. **Cloud Deployment Configuration**:
-   - Create AWS Amplify configuration file
-   - Set up environment variables
-   - Configure scaling parameters
-
-3. **Testing Deployment**:
-   - Verify container functionality
-   - Test with multiple clients across different networks
-   - Benchmark performance under load
-
 ### Example LLM-Generated Code
 
 An LLM could generate core networking code like this:
@@ -673,6 +508,5 @@ Converting from single-player to multiplayer requires adding:
 2. Communication code to send/receive player data
 3. Logic to render other players
 4. Systems to handle game state synchronization
-5. Containerization for reliable deployment
 
-With appropriate synchronization techniques and containerized deployment, the game provides a smooth, responsive experience while maintaining consistency across all connected players. The files in this project provide all the necessary components to make a multiplayer sword fighting game work online! 
+With appropriate synchronization techniques, the game provides a smooth, responsive experience while maintaining consistency across all connected players. The files in this project provide all the necessary components to make a multiplayer sword fighting game work online! 
