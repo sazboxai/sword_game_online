@@ -1758,9 +1758,17 @@ class MultiplayerManager {
      */
     createSword(playerId, parentMesh) {
         try {
+            console.log(`Creating sword for player ${playerId}`);
+            
+            if (!parentMesh) {
+                console.error(`Cannot create sword - parent mesh not provided for player ${playerId}`);
+                return null;
+            }
+            
             // Remove existing sword if any
             parentMesh.children.forEach(child => {
-                if (child.name === `sword_${playerId}`) {
+                if (child.name && child.name.startsWith('sword_')) {
+                    console.log(`Removing existing sword ${child.name}`);
                     parentMesh.remove(child);
                 }
             });
@@ -1768,6 +1776,9 @@ class MultiplayerManager {
             // Get the player data to determine sword color based on character type
             const playerData = this.remotePlayers[playerId];
             const characterType = playerData ? playerData.characterType : 'default';
+            const swordType = playerData ? playerData.swordType : 'broadsword';
+            
+            console.log(`Creating sword for ${characterType} character with ${swordType} sword`);
             
             // Create a Minecraft-like sword using THREE.js
             // Minecraft swords are more blocky and have a distinctive shape
@@ -1788,6 +1799,24 @@ class MultiplayerManager {
                     break;
                 default:
                     swordColor = new THREE.Color(0xCCCCCC); // Default silver
+            }
+            
+            // Modify color based on sword type
+            if (swordType === 'greatsword') {
+                // Create a bigger blade for greatsword
+                bladeGeometry.scale(1.5, 1.2, 1.3);
+                swordColor.multiplyScalar(0.8); // Darker, more imposing
+            } else if (swordType === 'katana') {
+                // Thinner, longer blade for katana
+                bladeGeometry.scale(0.7, 0.8, 1.4);
+                swordColor.multiplyScalar(1.2); // Brighter, shinier
+            } else if (swordType === 'rapier') {
+                // Very thin, longer blade for rapier
+                bladeGeometry.scale(0.5, 0.5, 1.5);
+            } else if (swordType === 'ninjato') {
+                // Shorter, straight blade for ninjato
+                bladeGeometry.scale(0.6, 0.7, 0.9);
+                swordColor.multiplyScalar(0.7); // Darker for stealth
             }
             
             // Create the sword materials
@@ -1822,15 +1851,18 @@ class MultiplayerManager {
             // Rotate the sword to be held properly
             swordGroup.rotation.set(0, Math.PI/2, 0); 
             
+            // Make sure it's visible
+            swordGroup.visible = true;
+            
             // Add to parent mesh
             parentMesh.add(swordGroup);
             
-            this.logReconnection(`Created Minecraft-style sword for player ${playerId}`);
+            console.log(`Created ${swordType} sword for player ${playerId} (${characterType})`);
             
             return swordGroup;
             
-                    } catch (error) {
-            this.logReconnection(`Error creating sword`, {
+        } catch (error) {
+            console.error(`Error creating sword`, {
                 error: error.message,
                 playerId
             });

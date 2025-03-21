@@ -1506,7 +1506,7 @@
             // Update attack animation
             if (this.isAttacking) {
                 // Enhanced attack animation
-                const attackDuration = 400; // ms - slightly longer for a more fluid animation
+                const attackDuration = 500; // ms - increased from 400ms for more fluid animation
                 const attackProgress = (Date.now() - this.lastAttackTime) / attackDuration;
                 
                 if (attackProgress < 1) {
@@ -1527,6 +1527,13 @@
                         // For first-person, add more horizontal movement
                         if (inFirstPerson) {
                             this.sword.position.x += 0.05 * pullBackFactor;
+                        }
+                        
+                        // Early hit detection - start checking early (25% chance to check during wind-up)
+                        if (!this.hasCheckedHit && Math.random() < 0.25) {
+                            console.log("Early attack hit check!");
+                            this.checkAttackHits();
+                            this.hasCheckedHit = true;
                         }
                     } 
                     else if (attackProgress < 0.6) {
@@ -1563,8 +1570,16 @@
                             this.sword.position.y = (this.originalSwordRotation.y || 0) + 0.1 - (0.15 * swingProgress);
                         }
                         
-                        // Perform hit detection at the peak of the swing (around 0.4 progress)
-                        if (swingProgress > 0.3 && swingProgress < 0.5 && !this.hasCheckedHit) {
+                        // Perform hit detection MULTIPLE times during swing (30% chance per frame)
+                        if (!this.hasCheckedHit && Math.random() < 0.3) {
+                            console.log(`Mid-swing hit check! Progress: ${swingProgress.toFixed(2)}`);
+                            this.checkAttackHits();
+                            this.hasCheckedHit = true;
+                        }
+                        
+                        // Guaranteed hit check at peak of swing
+                        if (swingProgress > 0.45 && swingProgress < 0.55 && !this.hasCheckedHit) {
+                            console.log("Peak swing hit check!");
                             this.checkAttackHits();
                             this.hasCheckedHit = true;
                         }
@@ -1589,6 +1604,13 @@
                                 this.sword.position.x = (this.originalSwordRotation.posX || 0);
                             }
                         }
+                        
+                        // Last chance hit detection during recovery (15% chance)
+                        if (!this.hasCheckedHit && Math.random() < 0.15) {
+                            console.log("Recovery phase hit check!");
+                            this.checkAttackHits();
+                            this.hasCheckedHit = true;
+                        }
                     }
                 } else {
                     // Reset sword position
@@ -1611,6 +1633,18 @@
                     }
                     this.isAttacking = false;
                     this.hasCheckedHit = false;
+                    
+                    // One final hit check if we never checked during animation (failsafe)
+                    if (!this.hasCheckedHitEver) {
+                        console.log("Final failsafe hit check!");
+                        this.checkAttackHits();
+                        this.hasCheckedHitEver = true;
+                        
+                        // Reset this for the next attack
+                        setTimeout(() => {
+                            this.hasCheckedHitEver = false;
+                        }, 100);
+                    }
                 }
             }
             
@@ -1812,13 +1846,15 @@
                 return;
             }
             
-            // Get the hit range for our sword
-            let hitRange = 2.5; // Default range
+            // Get the hit range for our sword - INCREASE BY 50% to make hits more reliable
+            let hitRange = 4.0; // Increased default range (was 2.5)
             
             // Adjust range based on sword type if stats are available
             if (this.swordStats && typeof this.swordStats.range === 'number') {
-                hitRange = this.swordStats.range;
+                hitRange = this.swordStats.range * 1.5; // Increase by 50%
             }
+            
+            console.log(`Checking for hits with range: ${hitRange}`);
             
             // Get list of hit players
             const hitPlayers = [];
@@ -1831,7 +1867,10 @@
                 const remotePlayer = this.game.multiplayer.remotePlayers[playerId];
                 
                 // Skip if player has no mesh
-                if (!remotePlayer.mesh) continue;
+                if (!remotePlayer.mesh) {
+                    console.log(`Player ${playerId} has no mesh, skipping hit detection`);
+                    continue;
+                }
                 
                 // Get target position
                 const targetPos = remotePlayer.mesh.position;
@@ -1843,8 +1882,10 @@
                     Math.pow(targetPos.z - myPos.z, 2)
                 );
                 
-                // Check if within hit range
-                if (distance <= hitRange) {
+                console.log(`Distance to player ${playerId}: ${distance.toFixed(2)}, hit range: ${hitRange}`);
+                
+                // Check if within hit range - USE A MUCH MORE GENEROUS RANGE
+                if (distance <= hitRange * 1.2) { // 20% extra range buffer
                     // Now check if target is in front of player (in attack direction)
                     const directionVector = {
                         x: Math.sin(this.rotation),
@@ -1873,20 +1914,50 @@
                         directionVector.x * toTargetVector.x + 
                         directionVector.z * toTargetVector.z;
                     
-                    // If dot product is positive, target is in front (within a 180-degree arc)
-                    // Use a threshold to create a narrower arc for more precise targeting
-                    const angleThreshold = 0.5; // Roughly 60-degree arc
+                    console.log(`Dot product with player ${playerId}: ${dotProduct.toFixed(2)}`);
+                    
+                    // USE A MUCH MORE PERMISSIVE ANGLE - 0.2 is about 100 degree arc instead of 60
+                    // If dot product is positive, target is in front (within a wider arc)
+                    const angleThreshold = 0.2; // More permissive (was 0.5)
                     
                     if (dotProduct > angleThreshold) {
                         // Target is within hit range and in front of player
                         hitPlayers.push(playerId);
                         console.log(`Hit player ${playerId} at distance ${distance.toFixed(2)}`);
+                    } else {
+                        console.log(`Player ${playerId} in range but not in attack arc (dot product: ${dotProduct.toFixed(2)})`);
+                    }
+                } else {
+                    console.log(`Player ${playerId} outside of hit range (distance: ${distance.toFixed(2)})`);
+                }
+            }
+            
+            // IMPORTANT: If we're close to any player, include them as hit
+            if (hitPlayers.length === 0) {
+                for (const playerId in this.game.multiplayer.remotePlayers) {
+                    const remotePlayer = this.game.multiplayer.remotePlayers[playerId];
+                    if (!remotePlayer.mesh) continue;
+                    
+                    const targetPos = remotePlayer.mesh.position;
+                    const myPos = this.mesh.position;
+                    const distance = Math.sqrt(
+                        Math.pow(targetPos.x - myPos.x, 2) +
+                        Math.pow(targetPos.z - myPos.z, 2)
+                    );
+                    
+                    // Extra aggressive hit detection - if very close, just hit
+                    if (distance < hitRange * 1.5) {
+                        hitPlayers.push(playerId);
+                        console.log(`FORCED hit on player ${playerId} at close range (${distance.toFixed(2)})`);
+                        break;
                     }
                 }
             }
             
             // If we hit any players, send attack data to server
             if (hitPlayers.length > 0) {
+                console.log(`Sending attack with hit players: ${hitPlayers.join(', ')}`);
+                
                 // Calculate damage
                 const damage = this.attackPower + (this.swordStats ? this.swordStats.damage : 0);
                 
@@ -1912,6 +1983,8 @@
                 
                 // Show hit confirmation
                 this.showHitConfirmation();
+            } else {
+                console.log(`No players hit with this attack`);
             }
         }
         
@@ -1984,6 +2057,8 @@
         }
         
         takeDamage(amount, attackerId) {
+            console.log(`TAKING DAMAGE: ${amount} from player ${attackerId}`);
+            
             // Reduce health
             this.health = Math.max(0, this.health - amount);
             
@@ -1991,14 +2066,39 @@
             document.getElementById('health').style.width = `${this.health/120*100}%`;
             document.getElementById('game-state').textContent = `HP: ${this.health}`;
             
+            // Add text notification of damage taken
+            const damageText = document.createElement('div');
+            damageText.textContent = `-${amount} HP`;
+            damageText.style.position = 'absolute';
+            damageText.style.top = '30%';
+            damageText.style.left = '50%';
+            damageText.style.transform = 'translate(-50%, -50%)';
+            damageText.style.color = '#FF0000';
+            damageText.style.fontSize = '48px';
+            damageText.style.fontWeight = 'bold';
+            damageText.style.textShadow = '2px 2px 4px #000000';
+            damageText.style.zIndex = '1001';
+            damageText.style.opacity = '1';
+            damageText.style.transition = 'opacity 1s, transform 1s';
+            document.body.appendChild(damageText);
+            
+            // Animate the damage text
+            setTimeout(() => {
+                damageText.style.opacity = '0';
+                damageText.style.transform = 'translate(-50%, -150%)';
+                setTimeout(() => {
+                    document.body.removeChild(damageText);
+                }, 1000);
+            }, 500);
+            
             // Flash screen red to indicate damage
             const damageFlash = document.createElement('div');
-            damageFlash.style.position = 'absolute';
+            damageFlash.style.position = 'fixed';
             damageFlash.style.top = '0';
             damageFlash.style.left = '0';
             damageFlash.style.width = '100%';
             damageFlash.style.height = '100%';
-            damageFlash.style.backgroundColor = 'rgba(255,0,0,0.3)';
+            damageFlash.style.backgroundColor = 'rgba(255,0,0,0.4)'; // More opaque
             damageFlash.style.pointerEvents = 'none';
             damageFlash.style.zIndex = '1000';
             damageFlash.style.opacity = '1';
@@ -2014,14 +2114,30 @@
             }, 100);
             
             // Play hit sound
-            const hitSound = new Audio('hit.mp3');
-            hitSound.volume = 0.3;
-            hitSound.play().catch(e => console.log('Error playing hit sound:', e));
+            try {
+                const hitSound = new Audio('hit.mp3');
+                hitSound.volume = 0.5; // louder
+                hitSound.play().catch(e => console.log('Error playing hit sound:', e));
+            } catch (e) {
+                console.log('Error with hit sound:', e);
+            }
+            
+            // Vibrate device if supported (mobile)
+            if (navigator.vibrate) {
+                navigator.vibrate(200);
+            }
             
             // Check if player was defeated
             if (this.health <= 0) {
                 console.log(`Player defeated by ${attackerId}`);
                 this.showRespawnUI();
+                
+                // Notify server of defeat
+                if (this.game && this.game.multiplayer && this.game.multiplayer.socket) {
+                    this.game.multiplayer.socket.emit('playerDefeated', {
+                        defeatedBy: attackerId
+                    });
+                }
             }
         }
         

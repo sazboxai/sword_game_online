@@ -675,7 +675,7 @@ io.on('connection', (socket) => {
                 console.log(`[ATTACK] No hit players provided by client, calculating server-side`);
                 
                 // Get the effective hit range based on the sword type
-                const hitRange = getSwordHitRange(attackData.swordType);
+                const hitRange = getSwordHitRange(attackData.swordType) * 1.5; // INCREASED BY 50%
                 console.log(`[ATTACK] Sword type: ${attackData.swordType}, Hit range: ${hitRange}`);
                 
                 // Check for all players within range
@@ -697,8 +697,8 @@ io.on('connection', (socket) => {
                     
                     console.log(`[ATTACK] Distance to player ${targetId}: ${distance.toFixed(2)} units (hit range: ${hitRange})`);
                     
-                    // Check if within hit range
-                    if (distance <= hitRange) {
+                    // Check if within hit range - USE A MORE GENEROUS RANGE
+                    if (distance <= hitRange * 1.2) { // 20% extra range
                         // Check if target is in the direction of the attack
                         const attackDirection = attackData.direction;
                         
@@ -727,13 +727,33 @@ io.on('connection', (socket) => {
                         
                         console.log(`[ATTACK] Dot product with player ${targetId}: ${dotProduct.toFixed(2)}`);
                         
-                        // Use a more permissive angle threshold for better hit detection
-                        // A dot product of 0.3 corresponds to roughly a 70-degree arc
-                        if (dotProduct > 0.3) {
+                        // MUCH more permissive angle threshold - 0.1 is almost 90 degrees to either side
+                        if (dotProduct > 0.1) { // Was 0.3
                             attackData.hitPlayers.push(targetId);
                             console.log(`[ATTACK] Player ${socket.id} hit player ${targetId} with ${attackData.swordType}!`);
                         } else {
                             console.log(`[ATTACK] Player ${targetId} in range but not in attack direction`);
+                        }
+                    }
+                }
+                
+                // FORCE HIT: If players are very close, consider it a hit regardless of direction
+                if (attackData.hitPlayers.length === 0) {
+                    for (const targetId in players) {
+                        // Skip attacker and non-registered players
+                        if (targetId === socket.id || !players[targetId].fullyRegistered) continue;
+                        
+                        const targetPos = players[targetId].position;
+                        const attackerPos = attackData.position;
+                        const dx = targetPos.x - attackerPos.x;
+                        const dz = targetPos.z - attackerPos.z;
+                        const distance = Math.sqrt(dx * dx + dz * dz);
+                        
+                        // Super aggressive hit detection - if very close, just hit
+                        if (distance < hitRange * 1.5) {
+                            attackData.hitPlayers.push(targetId);
+                            console.log(`[ATTACK] FORCED hit on player ${targetId} at close range (${distance.toFixed(2)})`);
+                            break;
                         }
                     }
                 }
