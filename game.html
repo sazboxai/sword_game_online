@@ -586,7 +586,10 @@
                     this.availableSwords = ['katana', 'dual_daggers'];
                     break;
                 case 'ninja':
-                    this.maxSpeed = 8;
+                    this.maxSpeed = 10; // Increased from 8 to 10
+                    this.moveSpeed = 7; // Make base movement speed faster than default
+                    this.sprintSpeed = 14; // Faster sprint speed for ninja
+                    this.staminaRegenRate = 20; // Faster stamina regeneration for ninja
                     this.health = 80;
                     this.attackPower = 20;
                     this.attackCooldown = 0.5;
