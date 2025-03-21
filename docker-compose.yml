@@ -1,0 +1,10 @@
+version: '3'
+services:
+  game-server:
+    build: .
+    ports:
+      - "8989:8989"
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+    restart: unless-stopped 

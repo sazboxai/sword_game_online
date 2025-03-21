@@ -1049,9 +1049,9 @@ io.on('connection', (socket) => {
 
 // Start server
 const PORT = process.env.PORT || 8989;
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`Open http://localhost:${PORT} in your browser`);
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server is running on port ${PORT}`);
+    console.log(`Access the game at http://localhost:${PORT}`);
 });
 
 // Create a separate HTTP server for the diagnostic WebSocket server to avoid conflicts with Socket.io
